@@ -286,32 +286,20 @@ If capture fails (Sonar down, no browser deps): put a one-line status in the
 Sonar section and note “screenshot unavailable: \<reason\>”. Do not invent
 alternate PR sections.
 
-**Attach the image to the PR** (GitHub cannot load local paths in the body):
+**Attach the image to the PR** (GitHub cannot load local file paths in the body):
 
-After the PR number is known (create or existing):
-
-```bash
-# gh gist create is secret by default (use --public only if you intend public)
-GIST_URL=$(gh gist create /tmp/sonar-report-pr.png -d "sonar-report PR $(date +%Y%m%d)" 2>/dev/null | tail -1)
-GIST_ID=$(basename "$GIST_URL")
-RAW_URL=$(gh api "gists/$GIST_ID" --jq '.files | to_entries[0].value.raw_url')
-# Prefer commenting the image so the Description stays template-clean:
-gh pr comment "$PR_NUMBER" --body "### SonarQube Report (auto-capture)
-
-![SonarQube]($RAW_URL)
-
-Local capture attached for reviewers."
-```
-
-If `gh gist create` fails, still post:
+After the PR number is known (create or existing), use the bundled helper:
 
 ```bash
-gh pr comment "$PR_NUMBER" --body "### SonarQube Report
-Screenshot saved locally at \`/tmp/sonar-report-pr.png\` (upload manually if needed).
-Quality gate: <Passed|Failed|unknown> — dashboard: <host>/dashboard?id=<key>"
+bash "$SKILL_DIR/scripts/attach-sonar-to-pr.sh" "$PR_NUMBER" /tmp/sonar-report-pr.png
+# optional: pass owner/repo as 3rd arg if not in that git remote context
 ```
 
-In the **template** Sonar section, write briefly:
+The helper uploads the PNG (temporary host) when possible and posts a PR
+comment titled **SonarQube Report (auto-capture)** with the embedded image.
+(`gh gist create` cannot attach binary PNGs on current GitHub CLI versions.)
+
+In the **template** Sonar section, keep it short and template-shaped:
 
 ```markdown
 ## SonarQube Report

@@ -19,7 +19,7 @@ repo (`AGENTS.md`, `.ai-rules/`, PR templates).
 
 | Skill | Invoke | Purpose |
 |-------|--------|---------|
-| [`raise-pr`](./raise-pr/) | `/raise-pr`, “raise a PR”, “ship this” | Branch → commit → push → open PR |
+| [`raise-pr`](./raise-pr/) | `/raise-pr`, “raise a PR”, “ship this” | Branch → commit → push → open PR using repo template; optional Sonar screenshot |
 
 More skills can be added as top-level folders with a `SKILL.md`.
 
@@ -75,6 +75,19 @@ paths = ["~/si/build/ai-skills"]
 - `git`
 - [GitHub CLI](https://cli.github.com/) (`gh`) authenticated: `gh auth login`
 - Network access to your remote
+- Optional (Sonar screenshot): Node 18+, first run of
+  `raise-pr/scripts/capture-sonar-report.sh` installs Playwright Chromium via
+  **public** npm (`registry.npmjs.org`). Set `SONAR_TOKEN` if your Sonar
+  instance requires auth.
+
+### Sonar screenshot helper
+
+```bash
+# From a product repo that has sonar-project.properties
+~/si/build/ai-skills/raise-pr/scripts/capture-sonar-report.sh --out /tmp/sonar.png
+```
+
+Used by the skill when the PR template includes a SonarQube section.
 
 ---
 

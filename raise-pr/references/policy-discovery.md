@@ -34,8 +34,9 @@ base `development`).
 | Commit types | `commitlint.config.js`, `commitlint.config.cjs`, `commitlint.config.mjs`, `package.json#commitlint` |
 | Branch name check | `scripts/check-branch-name.js`, husky `pre-push` |
 | Default base | `gh repo view` default branch; rules mentioning `development` |
-| PR template | `.github/PULL_REQUEST_TEMPLATE.md` (+ variants) |
+| PR template | `.github/PULL_REQUEST_TEMPLATE.md` (+ variants) — **mandatory body skeleton** when present |
 | Sonar / quality | `sonar-project.properties`, `scripts/check-sonar*`, husky pre-push |
+| Sonar screenshot | `raise-pr/scripts/capture-sonar-report.sh` (Playwright) + `SONAR_TOKEN` / host |
 
 ## 5. Portable defaults (this skill)
 

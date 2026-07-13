@@ -30,16 +30,24 @@ Scan from repo root (and deeper dirs if relevant):
   `.claude/skills/raise-pr/`, `.cursor/skills/raise-pr/` — if present and more
   specific than this skill, **obey the override** for conflicting details.
 
-### PR template
+### PR template (mandatory when present)
 
-Prefer the first that exists:
+Locate the first file that exists:
 
 1. `.github/PULL_REQUEST_TEMPLATE.md`
 2. `.github/pull_request_template.md`
-3. `.github/PULL_REQUEST_TEMPLATE/*.md` (pick the default or first)
+3. `.github/PULL_REQUEST_TEMPLATE/*.md` (default or first file)
 4. `PULL_REQUEST_TEMPLATE.md` / `docs/pull_request_template.md`
 
-If none exist, use the **fallback body** in §5.
+**If a template exists, it is the only allowed PR body skeleton.**
+
+- Keep every heading, horizontal rule, and Checklist **table structure** exactly.
+- Only replace placeholder / italic guidance lines with real content.
+- **Do not** invent alternate sections such as `## Summary`, `## Test plan`,
+  or `## SonarQube note` unless those headings already appear in the template.
+- Use `gh pr create|edit --body-file <filled-template.md>` (never a free-form body).
+
+If **no** template exists, use the fallback body in §6 only.
 
 ### Base branch
 
@@ -213,26 +221,117 @@ If `commit-msg` hook rejects the type, fix the message and retry. Do not
 **Slug**: lowercase kebab from subject, ~40 chars max
 (e.g. `update-fanos-cast-3-5-4`).
 
-**Body**: fill the discovered PR template. Replace placeholders with real
-content from the diff. Typical fields:
+#### 6a. Fill PR body from template (strict)
 
-- Description (2–6 concrete bullets)
-- Ticket / JIRA (`N/A` if none)
-- Checklist rows honestly (Yes / No / Partial / N/A + reason)
-- Sonar / quality notes if the template asks for them
+1. Copy the template file to a temp path, e.g. `/tmp/raise-pr-body-$$.md`.
+2. Fill sections that exist in **this** template only:
 
-If no template, use:
+| Template section (typical) | How to fill |
+|----------------------------|-------------|
+| `## Description` | 1–4 short bullets or 1–2 sentences from the **actual diff**. Remove italic placeholders like `_What does this PR do?_`. |
+| `## JIRA Ticket` | User-provided key/URL, else `N/A`. |
+| Checklist table | Set Status to `Yes` / `No` / `Partial` / `N/A` honestly; put reasons in the Reason column when not Yes. Keep the table markdown structure. |
+| `## SonarQube Report` | See §6b (screenshot + short status). Never replace this section with a long prose “SonarQube note” outside the template. |
+
+3. Example of a correctly filled fanxp-style body (structure must match template file):
 
 ```markdown
-## Summary
+## Description
+- Bumps `@fanos/cast` from `^3.5.3` to `^3.5.4`.
+- Removes unused schema re-exports from the cast host adapter.
+
+## JIRA Ticket
+N/A
+
+---
+
+## Checklist
+
+| Check | Status | Reason (if No) |
+|---|---|---|
+| Tested locally | Yes | |
+| Linting passed | Yes | Via pre-commit hooks |
+| No console logs left in code | Yes | |
+| No commented-out code | Yes | |
+| Environment variables documented | N/A | No env changes |
+
+---
+
+## SonarQube Report
+![SonarQube report](<image-url-or-see-comment>)
+
+Local quality gate: Passed (or Failed — summary one line). Screenshot attached.
+```
+
+4. **Forbidden** when a template exists: `## Summary`, `## Test plan`, free-form
+   Sonar essays, or any heading not in the template.
+
+#### 6b. SonarQube auto-screenshot
+
+When the template has a Sonar section **or** the repo has Sonar (`sonar-project.properties` / pre-push sonar scripts), capture a dashboard screenshot:
+
+```bash
+# Skill-bundled helper (path relative to this skill directory)
+SKILL_DIR="<dir containing this SKILL.md>"   # e.g. ${CLAUDE_SKILL_DIR} or resolved path
+bash "$SKILL_DIR/scripts/capture-sonar-report.sh" --out /tmp/sonar-report-pr.png
+```
+
+The script:
+
+- Reads `sonar.projectKey` / `sonar.host.url` from `sonar-project.properties`
+- Uses `SONAR_HOST_URL` / `SONAR_TOKEN` / `SONAR_PROJECT_KEY` from env or `.env`
+- Opens the project dashboard headlessly (Playwright) and writes a PNG
+
+If capture fails (Sonar down, no browser deps): put a one-line status in the
+Sonar section and note “screenshot unavailable: \<reason\>”. Do not invent
+alternate PR sections.
+
+**Attach the image to the PR** (GitHub cannot load local paths in the body):
+
+After the PR number is known (create or existing):
+
+```bash
+# Secret gist keeps the PNG off the product repo; body can deep-link raw URL
+GIST_URL=$(gh gist create --secret /tmp/sonar-report-pr.png -d "sonar-report PR $(date +%Y%m%d)" 2>/dev/null | tail -1)
+# Prefer commenting the image so the Description stays template-clean:
+gh pr comment "$PR_NUMBER" --body "### SonarQube Report (auto-capture)
+
+![SonarQube]($(gh gist view \"$GIST_URL\" --raw 2>/dev/null | head -1 || echo \"$GIST_URL\"))
+
+Local capture attached for reviewers."
+```
+
+If `gh gist create` fails, still post:
+
+```bash
+gh pr comment "$PR_NUMBER" --body "### SonarQube Report
+Screenshot saved locally at \`/tmp/sonar-report-pr.png\` (upload manually if needed).
+Quality gate: <Passed|Failed|unknown> — dashboard: <host>/dashboard?id=<key>"
+```
+
+In the **template** Sonar section, write briefly:
+
+```markdown
+## SonarQube Report
+See PR comment **SonarQube Report (auto-capture)** for the dashboard screenshot.
+Quality gate: <Passed|Failed>. Dashboard: <url>
+```
+
+#### 6c. Fallback body (only if no template file)
+
+```markdown
+## Description
 - <what changed and why>
 
-## Test plan
-- [ ] <how to verify>
+## JIRA Ticket
+N/A
 
-## Notes
-- Base: <BASE>
-- Hooks: full | --no-verify (user-authorized)
+## Checklist
+- Tested locally: Yes / No
+- Linting passed: Yes / No
+
+## SonarQube Report
+<screenshot comment or status>
 ```
 
 ### 7. Push
@@ -260,17 +359,20 @@ gh pr list --head "$HEAD_BRANCH" --base "$BASE" --state open --json number,url,t
 gh pr view --json url,number,state,baseRefName,headRefName 2>/dev/null || true
 ```
 
-If an open PR exists for this head → `$BASE`: update title/body if needed
-(`gh pr edit`), print URL.
-
-Else:
+Write the filled template to a file, then:
 
 ```bash
-gh pr create --base "$BASE" --title "<title>" --body "$(cat <<'EOF'
-<body>
-EOF
-)"
+# Prefer body-file so structure is preserved exactly
+gh pr create --base "$BASE" --title "<title>" --body-file /tmp/raise-pr-body.md
+# or, if PR already open:
+gh pr edit "$PR_NUMBER" --title "<title>" --body-file /tmp/raise-pr-body.md
 ```
+
+Then run §6b attachment (`gh pr comment` + screenshot) if Sonar capture ran.
+
+If an open PR exists for this head → `$BASE`: **edit body to match the
+template** when the current body uses non-template sections (e.g. Summary /
+Test plan only).
 
 ### 9. Final report (always)
 
@@ -303,10 +405,12 @@ Subject: imperative mood; follow repo case rules if any.
 - Pushing commits onto a protected branch “for speed”
 - Using disallowed commit types under commitlint
 - Empty / boilerplate PR bodies that ignore the template
+- **Inventing `## Summary` / `## Test plan` when `.github/PULL_REQUEST_TEMPLATE.md` exists**
 - Asking the user to paste git commands you could run
 - Silencing tests or weakening quality gates to land the PR
 - Duplicate PRs for the same head branch
 - Hardcoding one company’s base branch when discovery would work
+- Committing Sonar screenshots into the product repo (use gist/comment instead)
 
 ---
 

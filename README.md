@@ -80,14 +80,29 @@ paths = ["~/si/build/ai-skills"]
   **public** npm (`registry.npmjs.org`). Set `SONAR_TOKEN` if your Sonar
   instance requires auth.
 
-### Sonar screenshot helper
+### Sonar screenshot helper (agent-automated)
+
+The agent runs these on `/raise-pr` — you should not capture/paste by hand:
 
 ```bash
 # From a product repo that has sonar-project.properties
-~/si/build/ai-skills/raise-pr/scripts/capture-sonar-report.sh --out /tmp/sonar.png
+./raise-pr/scripts/capture-sonar-report.sh --out /tmp/sonar.png
+# Upload + emit <img> HTML for the PR body:
+./raise-pr/scripts/attach-sonar-to-pr.sh /tmp/sonar.png
 ```
 
-Used by the skill when the PR template includes a SonarQube section.
+Upload strategies:
+
+1. **`GITHUB_USER_SESSION` cookie set** → same `user-attachments/assets/…` URLs as pasting in the GitHub UI  
+2. **Otherwise (default agent path)** → pre-release `raise-pr-media` asset URL (still embeds as `<img>` in the PR body)
+
+Optional one-time setup for paste-identical URLs:
+
+```bash
+# Browser → DevTools → Application → Cookies → github.com → user_session value
+export GITHUB_USER_SESSION='…'
+# add to ~/.zshrc if you want it sticky (treat as a secret)
+```
 
 ---
 

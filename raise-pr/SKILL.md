@@ -266,46 +266,47 @@ Local quality gate: Passed (or Failed — summary one line). Screenshot attached
 4. **Forbidden** when a template exists: `## Summary`, `## Test plan`, free-form
    Sonar essays, or any heading not in the template.
 
-#### 6b. SonarQube auto-screenshot
+#### 6b. SonarQube auto-screenshot (agent does this — never ask the user)
 
-When the template has a Sonar section **or** the repo has Sonar (`sonar-project.properties` / pre-push sonar scripts), capture a dashboard screenshot:
+When the template has a Sonar section **or** the repo has Sonar
+(`sonar-project.properties` / pre-push sonar scripts), **you** capture and embed
+the screenshot. Do **not** ask the user to screenshot or paste.
 
 ```bash
-# Skill-bundled helper (path relative to this skill directory)
-SKILL_DIR="<dir containing this SKILL.md>"   # e.g. ${CLAUDE_SKILL_DIR} or resolved path
+SKILL_DIR="<dir containing this SKILL.md>"   # ${CLAUDE_SKILL_DIR} or resolve path
+# 1) Capture dashboard → PNG
 bash "$SKILL_DIR/scripts/capture-sonar-report.sh" --out /tmp/sonar-report-pr.png
+# 2) Upload → permanent image URL + HTML fragment for the body
+SONAR_IMG_HTML=$(bash "$SKILL_DIR/scripts/attach-sonar-to-pr.sh" /tmp/sonar-report-pr.png)
 ```
 
-The script:
+Capture script:
 
 - Reads `sonar.projectKey` / `sonar.host.url` from `sonar-project.properties`
 - Uses `SONAR_HOST_URL` / `SONAR_TOKEN` / `SONAR_PROJECT_KEY` from env or `.env`
 - Opens the project dashboard headlessly (Playwright) and writes a PNG
 
-If capture fails (Sonar down, no browser deps): put a one-line status in the
-Sonar section and note “screenshot unavailable: \<reason\>”. Do not invent
-alternate PR sections.
+Upload script (`upload-github-image.sh` via `attach-sonar-to-pr.sh`):
 
-**Attach the image to the PR** (GitHub cannot load local file paths in the body):
+1. If `GITHUB_USER_SESSION` is set → upload like the web UI paste flow →
+   `https://github.com/user-attachments/assets/<uuid>`
+2. Else → upload to pre-release tag `raise-pr-media` via `gh` token →
+   `…/releases/download/raise-pr-media/….png` (still embeds in PR markdown)
 
-After the PR number is known (create or existing), use the bundled helper:
-
-```bash
-bash "$SKILL_DIR/scripts/attach-sonar-to-pr.sh" "$PR_NUMBER" /tmp/sonar-report-pr.png
-# optional: pass owner/repo as 3rd arg if not in that git remote context
-```
-
-The helper uploads the PNG (temporary host) when possible and posts a PR
-comment titled **SonarQube Report (auto-capture)** with the embedded image.
-(`gh gist create` cannot attach binary PNGs on current GitHub CLI versions.)
-
-In the **template** Sonar section, keep it short and template-shaped:
+**Put the image in the PR body under `## SonarQube Report`**, not a side comment:
 
 ```markdown
 ## SonarQube Report
-See PR comment **SonarQube Report (auto-capture)** for the dashboard screenshot.
-Quality gate: <Passed|Failed>. Dashboard: <url>
+
+<img width="947" height="802" alt="SonarQube report" src="https://…" />
 ```
+
+(`attach-sonar-to-pr.sh` prints that HTML fragment — paste it as the Sonar section
+body.) Optional one-line status under the image is fine; **never** use
+`localhost` dashboard links for reviewers; **never** “see PR comment for screenshot”.
+
+If capture/upload fails: one line only —
+`Screenshot unavailable: <reason>` — still keep the template heading.
 
 #### 6c. Fallback body (only if no template file)
 

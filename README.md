@@ -1,0 +1,148 @@
+# ai-skills
+
+Portable **Agent Skills** shared across repos and harnesses:
+
+| Harness | User skill root |
+|---------|-----------------|
+| [Grok](https://x.ai) CLI / TUI | `~/.grok/skills/` |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `~/.claude/skills/` |
+| [Cursor](https://cursor.com) | `~/.cursor/skills/` |
+| Generic / other | `~/.agents/skills/` |
+
+Skills use the common `SKILL.md` layout (YAML frontmatter + markdown procedure).
+Procedures stay harness-agnostic (`git`, `gh`). Product policy stays in each
+repo (`AGENTS.md`, `.ai-rules/`, PR templates).
+
+---
+
+## Skills in this repo
+
+| Skill | Invoke | Purpose |
+|-------|--------|---------|
+| [`raise-pr`](./raise-pr/) | `/raise-pr`, “raise a PR”, “ship this” | Branch → commit → push → open PR |
+
+More skills can be added as top-level folders with a `SKILL.md`.
+
+---
+
+## Install (you or a teammate)
+
+```bash
+git clone <this-repo-url> ~/si/build/ai-skills   # or your preferred path
+cd ~/si/build/ai-skills
+./install.sh
+```
+
+What it does:
+
+- Symlinks each skill into `~/.grok/skills`, `~/.claude/skills`,
+  `~/.cursor/skills`, and `~/.agents/skills`
+- Prints an optional Grok `config.toml` snippet
+
+Options:
+
+```bash
+./install.sh --list           # dry-run
+./install.sh grok claude      # only some harnesses
+./install.sh --copy           # copy instead of symlink (e.g. Windows)
+./uninstall.sh                # remove symlinks that point at this clone
+```
+
+### Grok without symlinks
+
+```toml
+# ~/.grok/config.toml
+[skills]
+paths = ["~/si/build/ai-skills"]
+```
+
+### Prerequisites for `raise-pr`
+
+- `git`
+- [GitHub CLI](https://cli.github.com/) (`gh`) authenticated: `gh auth login`
+- Network access to your remote
+
+---
+
+## How it works with product repos
+
+```text
+  ai-skills/raise-pr/SKILL.md     ← shared procedure (this repo)
+            │
+            ▼  installed to user harness dirs
+  agent runs inside a product repo
+            │
+            ▼  discovers
+  AGENTS.md / .ai-rules / commitlint / PR template
+```
+
+| Layer | Owner | Example |
+|-------|--------|---------|
+| Procedure | This repo | How to open a PR |
+| Policy | Product repo | Base = `development`, types `feat\|fix\|bugfix` |
+| Override (optional) | Product repo | `.agents/skills/raise-pr/` |
+
+Repo-local skills usually **win** over user-global ones when both are named
+`raise-pr`.
+
+### Product override example
+
+See [`examples/fanxp-override/`](./examples/fanxp-override/) for a
+`wnm-fanxp-frontend`-style override (base `development`, strict commitlint,
+Sonar notes).
+
+---
+
+## Adding a skill
+
+1. Create `my-skill/SKILL.md` with frontmatter:
+
+   ```markdown
+   ---
+   name: my-skill
+   description: >
+     What it does and when to use it. Include trigger phrases like /my-skill.
+   ---
+
+   # My skill
+   ...
+   ```
+
+2. Keep steps portable (shell + common CLIs).
+3. Run `./install.sh` again (or rely on `paths` if using Grok config).
+4. Open a PR to this repo so the team can pull + reinstall.
+
+---
+
+## Team onboarding checklist
+
+1. Clone this repo (or pull latest).
+2. Run `./install.sh`.
+3. `gh auth login` if needed.
+4. In any product repo: say **raise a PR** or `/raise-pr`.
+5. Optionally commit a thin override under `.agents/skills/raise-pr/` for
+   product-specific gates.
+
+---
+
+## Layout
+
+```text
+ai-skills/
+  README.md
+  install.sh
+  uninstall.sh
+  raise-pr/
+    SKILL.md
+    references/
+      policy-discovery.md
+  examples/
+    fanxp-override/
+      SKILL.md
+```
+
+---
+
+## License / ownership
+
+Internal team tooling. Adjust remote URL and org name when publishing.

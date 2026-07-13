@@ -291,12 +291,14 @@ alternate PR sections.
 After the PR number is known (create or existing):
 
 ```bash
-# Secret gist keeps the PNG off the product repo; body can deep-link raw URL
-GIST_URL=$(gh gist create --secret /tmp/sonar-report-pr.png -d "sonar-report PR $(date +%Y%m%d)" 2>/dev/null | tail -1)
+# gh gist create is secret by default (use --public only if you intend public)
+GIST_URL=$(gh gist create /tmp/sonar-report-pr.png -d "sonar-report PR $(date +%Y%m%d)" 2>/dev/null | tail -1)
+GIST_ID=$(basename "$GIST_URL")
+RAW_URL=$(gh api "gists/$GIST_ID" --jq '.files | to_entries[0].value.raw_url')
 # Prefer commenting the image so the Description stays template-clean:
 gh pr comment "$PR_NUMBER" --body "### SonarQube Report (auto-capture)
 
-![SonarQube]($(gh gist view \"$GIST_URL\" --raw 2>/dev/null | head -1 || echo \"$GIST_URL\"))
+![SonarQube]($RAW_URL)
 
 Local capture attached for reviewers."
 ```

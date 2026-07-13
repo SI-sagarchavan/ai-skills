@@ -77,8 +77,15 @@ paths = ["~/si/build/ai-skills"]
 - Network access to your remote
 - Optional (Sonar screenshot): Node 18+, first run of
   `raise-pr/scripts/capture-sonar-report.sh` installs Playwright Chromium via
-  **public** npm (`registry.npmjs.org`). Set `SONAR_TOKEN` if your Sonar
-  instance requires auth.
+  **public** npm (`registry.npmjs.org`). For local Community Sonar that shows
+  a login page, set in the **product** `.env` (gitignored):
+
+  ```bash
+  SONAR_USER=admin
+  SONAR_PASSWORD=…          # do not commit
+  SONAR_HOST_URL=http://localhost:9000
+  # optional: SONAR_PROJECT_KEY=…  (else sonar-project.properties)
+  ```
 
 ### Sonar screenshot helper (agent-automated)
 

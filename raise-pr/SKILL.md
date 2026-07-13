@@ -283,8 +283,11 @@ SONAR_IMG_HTML=$(bash "$SKILL_DIR/scripts/attach-sonar-to-pr.sh" /tmp/sonar-repo
 Capture script:
 
 - Reads `sonar.projectKey` / `sonar.host.url` from `sonar-project.properties`
-- Uses `SONAR_HOST_URL` / `SONAR_TOKEN` / `SONAR_PROJECT_KEY` from env or `.env`
-- Opens the project dashboard headlessly (Playwright) and writes a PNG
+- Env / product `.env` (never commit passwords into ai-skills):
+  - `SONAR_HOST_URL`, `SONAR_PROJECT_KEY`
+  - **`SONAR_USER` + `SONAR_PASSWORD`** for form login (required on local Community when the UI shows a login page)
+  - `SONAR_TOKEN` optional (API / basic auth; often not enough for the web UI alone)
+- Logs in when needed, opens **Overall Code**, screenshots the **Quality Gate** panel (Passed/Failed + metrics) — not the login page
 
 Upload script (`upload-github-image.sh` via `attach-sonar-to-pr.sh`):
 

@@ -35,18 +35,32 @@ cd ~/si/build/ai-skills
 
 What it does:
 
-- Symlinks each skill into `~/.grok/skills`, `~/.claude/skills`,
-  `~/.cursor/skills`, and `~/.agents/skills`
-- Prints an optional Grok `config.toml` snippet
+| Harness | Default install |
+|---------|-----------------|
+| Grok / Cursor / agents | Symlink → this clone (`git pull` stays live) |
+| **Claude Code** | **Real copy** into `~/.claude/skills/` (more reliable than symlink) |
 
 Options:
 
 ```bash
 ./install.sh --list           # dry-run
 ./install.sh grok claude      # only some harnesses
-./install.sh --copy           # copy instead of symlink (e.g. Windows)
-./uninstall.sh                # remove symlinks that point at this clone
+./install.sh --copy           # copy for every harness
+./install.sh --symlink        # symlink for every harness
+./uninstall.sh                # remove installs from this clone
 ```
+
+### Claude Code not showing `/raise-pr`?
+
+1. Re-run install: `./install.sh claude`
+2. **Fully quit** Claude Code and open a **new** session (skills are watched, but a new top-level `skills` dir or first install may need restart).
+3. Type **`/raise-pr`** (slash command = skill directory name). It may not appear as a settings toggle.
+4. Confirm the file exists:
+   ```bash
+   ls -la ~/.claude/skills/raise-pr/SKILL.md
+   head -10 ~/.claude/skills/raise-pr/SKILL.md
+   ```
+5. After every `git pull` of this repo, re-run `./install.sh claude` (copy mode does not auto-update).
 
 ### Grok without symlinks
 

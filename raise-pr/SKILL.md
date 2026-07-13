@@ -1,13 +1,8 @@
 ---
 name: raise-pr
-description: >
-  Fully agentic PR workflow for any git repo: discover local rules and PR
-  templates, leave protected branches, commit with the repo's allowed types,
-  push (or --no-verify only when the user authorizes), open a PR with gh.
-  Portable across Grok, Claude Code, Cursor, and other Agent Skills harnesses.
-  Use when the user runs /raise-pr, /pr, says "raise a PR", "open a PR",
-  "create a PR", "ship this", "push and PR", or asks to land work via pull
-  request.
+description: "Open a pull request from current work (branch, commit, push, gh pr create). Use when the user runs /raise-pr or /pr, or says raise a PR, open a PR, create a PR, ship this, or push and PR."
+user-invocable: true
+argument-hint: "[ticket-or-notes]"
 ---
 
 # Raise PR (portable, agentic)

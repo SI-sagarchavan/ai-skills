@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
-# Install ai-skills into local harness skill directories via symlinks.
+# Install ai-skills into local harness skill directories.
+#
+# Claude Code is more reliable with a real directory copy than a symlink
+# (symlinks work per docs, but some setups skip or fail to list them).
+# Grok/Cursor/agents default to symlink so `git pull` stays live.
+#
 # Usage:
 #   ./install.sh              # all known harnesses
 #   ./install.sh grok claude  # subset
-#   ./install.sh --copy       # copy instead of symlink (Windows-friendly)
-#   ./install.sh --list       # show what would be installed
+#   ./install.sh --copy       # force copy for every harness
+#   ./install.sh --symlink    # force symlink for every harness
+#   ./install.sh --list       # dry-run
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODE="symlink" # or copy
+MODE="auto" # auto | copy | symlink
 LIST_ONLY=0
 HARNESSES=""
 
@@ -20,18 +26,21 @@ Usage:
   ./install.sh [options] [harness...]
 
 Harnesses (default: all):
-  grok     ~/.grok/skills
-  claude   ~/.claude/skills
-  cursor   ~/.cursor/skills
-  agents   ~/.agents/skills
+  grok     ~/.grok/skills      (default: symlink)
+  claude   ~/.claude/skills    (default: copy — Claude Code friendly)
+  cursor   ~/.cursor/skills    (default: symlink)
+  agents   ~/.agents/skills    (default: symlink)
 
 Options:
-  --copy     Copy skill dirs instead of symlinking
-  --symlink  Symlink skill dirs (default)
+  --copy     Copy skill dirs for all selected harnesses
+  --symlink  Symlink skill dirs for all selected harnesses
   --list     Print plan only; do not install
   -h, --help Show this help
 
-Also prints a Grok config.toml snippet so you can optionally use:
+After install, restart Claude Code (or start a new session) and type:
+  /raise-pr
+
+Optional Grok config (load this repo without symlinks):
   [skills]
   paths = ["$ROOT"]
 EOF
@@ -69,13 +78,24 @@ harness_dir() {
   esac
 }
 
-# Discover skill packages: top-level dirs with SKILL.md (skip examples/)
+# Per-harness install mode when MODE=auto
+mode_for() {
+  local harness="$1"
+  if [[ "$MODE" == "copy" || "$MODE" == "symlink" ]]; then
+    echo "$MODE"
+    return
+  fi
+  case "$harness" in
+    claude) echo "copy" ;;
+    *) echo "symlink" ;;
+  esac
+}
+
 SKILL_DIRS=""
 for candidate in "$ROOT"/*/; do
   [[ -d "$candidate" ]] || continue
   base="$(basename "$candidate")"
-  [[ "$base" == "examples" ]] && continue
-  [[ "$base" == ".git" ]] && continue
+  [[ "$base" == "examples" || "$base" == ".git" ]] && continue
   if [[ -f "${candidate}SKILL.md" ]]; then
     SKILL_DIRS="${SKILL_DIRS} ${candidate%/}"
   fi
@@ -87,7 +107,7 @@ if [[ -z "${SKILL_DIRS// }" ]]; then
 fi
 
 echo "ai-skills root: $ROOT"
-echo "mode:           $MODE"
+echo "global mode:    $MODE (claude defaults to copy when auto)"
 echo "skills:"
 for s in $SKILL_DIRS; do
   echo "  - $(basename "$s")"
@@ -97,36 +117,45 @@ echo
 install_one() {
   local harness="$1"
   local skill_src="$2"
-  local name dest parent
+  local name dest parent how
   name="$(basename "$skill_src")"
   parent="$(harness_dir "$harness")"
   dest="${parent}/${name}"
+  how="$(mode_for "$harness")"
 
   if [[ $LIST_ONLY -eq 1 ]]; then
-    echo "[plan] $harness: $dest <- $skill_src"
+    echo "[plan] $harness ($how): $dest <- $skill_src"
     return 0
   fi
 
   mkdir -p "$parent"
 
+  # Clear previous install (symlink or directory)
   if [[ -L "$dest" ]]; then
     rm -f "$dest"
   elif [[ -d "$dest" ]]; then
-    if [[ "$MODE" == "symlink" ]]; then
-      echo "[skip] $dest exists as a real directory (not a symlink). Move it aside first." >&2
-      return 1
-    fi
     rm -rf "$dest"
   elif [[ -e "$dest" ]]; then
     rm -f "$dest"
   fi
 
-  if [[ "$MODE" == "symlink" ]]; then
+  if [[ "$how" == "symlink" ]]; then
     ln -sfn "$skill_src" "$dest"
     echo "[ok]   $harness: linked $name -> $dest"
   else
-    cp -R "$skill_src" "$dest"
+    # Prefer rsync for clean refresh; fall back to cp
+    if command -v rsync >/dev/null 2>&1; then
+      mkdir -p "$dest"
+      rsync -a --delete "$skill_src"/ "$dest"/
+    else
+      cp -R "$skill_src" "$dest"
+    fi
     echo "[ok]   $harness: copied $name -> $dest"
+  fi
+
+  if [[ ! -f "$dest/SKILL.md" ]]; then
+    echo "[err]  $dest/SKILL.md missing after install" >&2
+    return 1
   fi
 }
 
@@ -140,7 +169,29 @@ for h in $HARNESSES; do
 done
 
 echo
-echo "Grok optional config (~/.grok/config.toml) — load this repo without symlinks:"
+echo "Verify Claude Code:"
+echo "  1. Fully quit Claude Code (not just the tab)"
+echo "  2. Open a project and type:  /raise-pr"
+echo "  3. Or open the skills menu with /skills if available"
+echo
+echo "Files:"
+for h in $HARNESSES; do
+  parent="$(harness_dir "$h")"
+  for s in $SKILL_DIRS; do
+    name="$(basename "$s")"
+    dest="${parent}/${name}"
+    if [[ -e "$dest" ]]; then
+      if [[ -L "$dest" ]]; then
+        echo "  $dest -> $(readlink "$dest")"
+      else
+        echo "  $dest  (directory, SKILL.md present: $([[ -f $dest/SKILL.md ]] && echo yes || echo no))"
+      fi
+    fi
+  done
+done
+
+echo
+echo "Grok optional config (~/.grok/config.toml):"
 cat <<EOF
 [skills]
 paths = ["$ROOT"]
@@ -153,6 +204,5 @@ elif [[ $failures -gt 0 ]]; then
   echo "Finished with $failures warning(s)."
   exit 1
 else
-  echo "Done. Restart or re-open your agent session if skills do not appear."
-  echo "Verify: type /raise-pr (or open the skills menu) in Grok / Claude / Cursor."
+  echo "Done. Re-run ./install.sh after git pull (especially for Claude copy mode)."
 fi

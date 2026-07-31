@@ -19,7 +19,7 @@ repo (`AGENTS.md`, `.ai-rules/`, PR templates).
 
 | Skill | Invoke | Purpose |
 |-------|--------|---------|
-| [`raise-pr`](./raise-pr/) | `/raise-pr`, “raise a PR”, “ship this” | Branch → commit → push → open PR using repo template; optional Sonar screenshot |
+| [`raise-pr`](./raise-pr/) | `/raise-pr`, “raise a PR”, “ship this” | Branch → commit → push → open PR using repo template; Sonar section filled via REST API tables |
 
 More skills can be added as top-level folders with a `SKILL.md`.
 
@@ -75,41 +75,33 @@ paths = ["~/si/build/ai-skills"]
 - `git`
 - [GitHub CLI](https://cli.github.com/) (`gh`) authenticated: `gh auth login`
 - Network access to your remote
-- Optional (Sonar screenshot): Node 18+, first run of
-  `raise-pr/scripts/capture-sonar-report.sh` installs Playwright Chromium via
-  **public** npm (`registry.npmjs.org`). For local Community Sonar that shows
-  a login page, set in the **product** `.env` (gitignored):
+- Optional (Sonar section in PR body): `curl`, `jq`, and a reachable SonarQube
+  with credentials in the **product** `.env` (gitignored):
 
   ```bash
+  SONAR_TOKEN=…               # preferred
+  # or:
   SONAR_USER=admin
-  SONAR_PASSWORD=…          # do not commit
+  SONAR_PASSWORD=…            # do not commit
   SONAR_HOST_URL=http://localhost:9000
   # optional: SONAR_PROJECT_KEY=…  (else sonar-project.properties)
   ```
 
-### Sonar screenshot helper (agent-automated)
+### Sonar API report helper (agent-automated)
 
-The agent runs these on `/raise-pr` — you should not capture/paste by hand:
+The agent fills `## SonarQube Report` from the **Sonar REST API** as markdown
+tables (gate status, new-code metrics, overall metrics, conditions, open
+issues). **No dashboard screenshot, no PNG upload, no `raise-pr-media` release.**
 
 ```bash
 # From a product repo that has sonar-project.properties
-./raise-pr/scripts/capture-sonar-report.sh --out /tmp/sonar.png
-# Upload + emit <img> HTML for the PR body:
-./raise-pr/scripts/attach-sonar-to-pr.sh /tmp/sonar.png
+./raise-pr/scripts/fetch-sonar-report-md.sh . > /tmp/sonar-report-section.md
+# Paste under ## SonarQube Report in the PR body
 ```
 
-Upload strategies:
-
-1. **`GITHUB_USER_SESSION` cookie set** → same `user-attachments/assets/…` URLs as pasting in the GitHub UI  
-2. **Otherwise (default agent path)** → pre-release `raise-pr-media` asset URL (still embeds as `<img>` in the PR body)
-
-Optional one-time setup for paste-identical URLs:
-
-```bash
-# Browser → DevTools → Application → Cookies → github.com → user_session value
-export GITHUB_USER_SESSION='…'
-# add to ~/.zshrc if you want it sticky (treat as a secret)
-```
+Legacy screenshot scripts (`capture-sonar-report.sh`, `attach-sonar-to-pr.sh`,
+`upload-github-image.sh`) remain in the tree for rare manual use but are **not**
+part of the default `/raise-pr` flow.
 
 ---
 

@@ -231,7 +231,7 @@ If `commit-msg` hook rejects the type, fix the message and retry. Do not
 | `## Description` | 1–4 short bullets or 1–2 sentences from the **actual diff**. Remove italic placeholders like `_What does this PR do?_`. |
 | `## JIRA Ticket` | User-provided key/URL, else `N/A`. |
 | Checklist table | Set Status to `Yes` / `No` / `Partial` / `N/A` honestly; put reasons in the Reason column when not Yes. Keep the table markdown structure. |
-| `## SonarQube Report` | See §6b (screenshot + short status). Never replace this section with a long prose “SonarQube note” outside the template. |
+| `## SonarQube Report` | See §6b (API metrics markdown). Never replace this section with a long prose “SonarQube note” outside the template. |
 
 3. Example of a correctly filled fanxp-style body (structure must match template file):
 
@@ -258,58 +258,58 @@ N/A
 ---
 
 ## SonarQube Report
-![SonarQube report](<image-url-or-see-comment>)
 
-Local quality gate: Passed (or Failed — summary one line). Screenshot attached.
+**Quality gate:** ✅ **OK**
+
+### New code
+| Metric | Value |
+|---|---|
+| Violations | 0 |
+| Coverage | 94.70% |
+…
 ```
 
 4. **Forbidden** when a template exists: `## Summary`, `## Test plan`, free-form
    Sonar essays, or any heading not in the template.
 
-#### 6b. SonarQube auto-screenshot (agent does this — never ask the user)
+#### 6b. SonarQube API report (agent does this — never ask the user)
 
 When the template has a Sonar section **or** the repo has Sonar
-(`sonar-project.properties` / pre-push sonar scripts), **you** capture and embed
-the screenshot. Do **not** ask the user to screenshot or paste.
+(`sonar-project.properties` / pre-push sonar scripts), **you** fill
+`## SonarQube Report` from the **SonarQube REST API** as formatted markdown
+tables (gate status, new-code metrics, overall metrics, gate conditions,
+open new-code issues). Do **not** screenshot the dashboard, do **not** upload
+PNGs, and do **not** create a `raise-pr-media` GitHub release.
 
 ```bash
 SKILL_DIR="<dir containing this SKILL.md>"   # ${CLAUDE_SKILL_DIR} or resolve path
-# 1) Capture dashboard → PNG
-bash "$SKILL_DIR/scripts/capture-sonar-report.sh" --out /tmp/sonar-report-pr.png
-# 2) Upload → permanent image URL + HTML fragment for the body
-SONAR_IMG_HTML=$(bash "$SKILL_DIR/scripts/attach-sonar-to-pr.sh" /tmp/sonar-report-pr.png)
+# Writes markdown for ## SonarQube Report (tables, no image)
+bash "$SKILL_DIR/scripts/fetch-sonar-report-md.sh" "$(pwd)" > /tmp/sonar-report-section.md
 ```
 
-Capture script:
+Script (`fetch-sonar-report-md.sh`):
 
 - Reads `sonar.projectKey` / `sonar.host.url` from `sonar-project.properties`
-- Env / product `.env` (never commit passwords into ai-skills):
-  - `SONAR_HOST_URL`, `SONAR_PROJECT_KEY`
-  - **`SONAR_USER` + `SONAR_PASSWORD`** for form login (required on local Community when the UI shows a login page)
-  - `SONAR_TOKEN` optional (API / basic auth; often not enough for the web UI alone)
-- Logs in when needed, opens **Overall Code**, screenshots the **Quality Gate** panel (Passed/Failed + metrics) — not the login page
+- Auth from env / product `.env` (never commit secrets into ai-skills):
+  - `SONAR_TOKEN` preferred, or `SONAR_USER` + `SONAR_PASSWORD`
+  - optional `SONAR_HOST_URL`, `SONAR_PROJECT_KEY`
+- Calls:
+  - `/api/qualitygates/project_status`
+  - `/api/measures/component` (overall + `new_*` metrics)
+  - `/api/hotspots/search?status=TO_REVIEW`
+  - `/api/issues/search?inNewCodePeriod=true&resolved=false` (top issues)
+- Prints markdown tables only — **no** `localhost` dashboard links, **no**
+  screenshot HTML, **no** release-asset image URLs
 
-Upload script (`upload-github-image.sh` via `attach-sonar-to-pr.sh`):
+**Put the script output under `## SonarQube Report`** (keep the heading; replace
+the italic placeholder with the API tables).
 
-1. If `GITHUB_USER_SESSION` is set → upload like the web UI paste flow →
-   `https://github.com/user-attachments/assets/<uuid>`
-2. Else → upload to pre-release tag `raise-pr-media` via `gh` token →
-   `…/releases/download/raise-pr-media/….png` (still embeds in PR markdown)
+If the API call fails: one line only —
+`Sonar report unavailable: <reason>` — still keep the template heading.
 
-**Put the image in the PR body under `## SonarQube Report`**, not a side comment:
-
-```markdown
-## SonarQube Report
-
-<img width="947" height="802" alt="SonarQube report" src="https://…" />
-```
-
-(`attach-sonar-to-pr.sh` prints that HTML fragment — paste it as the Sonar section
-body.) Optional one-line status under the image is fine; **never** use
-`localhost` dashboard links for reviewers; **never** “see PR comment for screenshot”.
-
-If capture/upload fails: one line only —
-`Screenshot unavailable: <reason>` — still keep the template heading.
+Legacy scripts (`capture-sonar-report.sh`, `attach-sonar-to-pr.sh`,
+`upload-github-image.sh`) are obsolete for this flow; do not use them for PR
+bodies unless the user explicitly asks for a screenshot.
 
 #### 6c. Fallback body (only if no template file)
 
@@ -325,7 +325,7 @@ N/A
 - Linting passed: Yes / No
 
 ## SonarQube Report
-<screenshot comment or status>
+<!-- paste output of scripts/fetch-sonar-report-md.sh here -->
 ```
 
 ### 7. Push
@@ -362,7 +362,8 @@ gh pr create --base "$BASE" --title "<title>" --body-file /tmp/raise-pr-body.md
 gh pr edit "$PR_NUMBER" --title "<title>" --body-file /tmp/raise-pr-body.md
 ```
 
-Then run §6b attachment (`gh pr comment` + screenshot) if Sonar capture ran.
+Include the §6b Sonar API markdown in the body file **before** create/edit
+(not as a follow-up comment, and not as a PNG).
 
 If an open PR exists for this head → `$BASE`: **edit body to match the
 template** when the current body uses non-template sections (e.g. Summary /
@@ -404,7 +405,9 @@ Subject: imperative mood; follow repo case rules if any.
 - Silencing tests or weakening quality gates to land the PR
 - Duplicate PRs for the same head branch
 - Hardcoding one company’s base branch when discovery would work
-- Committing Sonar screenshots into the product repo (use gist/comment instead)
+- Creating a `raise-pr-media` GitHub release (or any release) just to host Sonar PNGs
+- Embedding dashboard screenshots when the Sonar REST API can supply the same numbers
+- Committing Sonar screenshots into the product repo
 
 ---
 

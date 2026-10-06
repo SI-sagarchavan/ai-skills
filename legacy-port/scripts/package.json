@@ -1,0 +1,14 @@
+{
+  "name": "legacy-port-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Scripts for the legacy-port skill: page inventory, legacy CSS extraction, plugin stylesheet build, live-page comparison.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pixelmatch": "^6.0.0",
+    "playwright-core": "1.63.0",
+    "pngjs": "^7.0.0"
+  }
+}

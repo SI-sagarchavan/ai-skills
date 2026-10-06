@@ -1,0 +1,51 @@
+{
+  "pluginId": "pbks-points-table",
+  "legacyUrl": "https://www.punjabkingsipl.in/points-table",
+  "root": ".waf-standings",
+  "widget": "si-standings/widget-layout-01",
+  "states": [
+    { "name": "closed" },
+    {
+      "name": "open",
+      "addClass": [{ "selector": ".filter-v1", "className": "active" }],
+      "plugin": [{ "click": "button[aria-haspopup]" }]
+    }
+  ],
+  "hover": [
+    ".filter-v1",
+    ".filter-v1 .list-item",
+    ".filter-v1 .selected-title",
+    ".table-body .table-row"
+  ],
+  "landmarks": [
+    { "name": "title", "legacy": ".title", "plugin": "h2" },
+    { "name": "first row", "legacy": ".table-body .table-row", "plugin": "tbody tr" }
+  ],
+  "theme": {
+    "proposed": {
+      "color": {
+        "light": {
+          "core_prim_500": "#ed1c24",
+          "text_main_high": "#000000",
+          "background_main_surface": "#ffffff",
+          "border_main_default": "#bdbdbd"
+        }
+      }
+    }
+  },
+  "neutralize": [
+    ".inner-page-bg .main-wrap::before { display: none !important; }"
+  ],
+  "pageBackground": "#f4f4f4",
+  "interaction": [
+    { "click": "button[aria-haspopup]" },
+    { "expect": { "selector": "[role=listbox]", "count": 1 } },
+    {
+      "click": "role=option",
+      "hasText": "2025",
+      "waitForResponse": "/cast/api/flow/"
+    },
+    { "expect": { "selector": "button[aria-haspopup]", "text": "2025" } },
+    { "expect": { "selector": "tbody tr", "contains": "Punjab Kings" } }
+  ]
+}

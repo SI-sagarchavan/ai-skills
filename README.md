@@ -7,7 +7,7 @@ Portable **Agent Skills** shared across repos and harnesses:
 | [Grok](https://x.ai) CLI / TUI | `~/.grok/skills/` |
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `~/.claude/skills/` |
 | [Cursor](https://cursor.com) | `~/.cursor/skills/` |
-| Generic / other | `~/.agents/skills/` |
+| [Codex](https://developers.openai.com/codex) / generic | `~/.agents/skills/` |
 
 Skills use the common `SKILL.md` layout (YAML frontmatter + markdown procedure).
 Procedures stay harness-agnostic (`git`, `gh`). Product policy stays in each
@@ -20,6 +20,7 @@ repo (`AGENTS.md`, `.ai-rules/`, PR templates).
 | Skill | Invoke | Purpose |
 |-------|--------|---------|
 | [`raise-pr`](./raise-pr/) | `/raise-pr`, “raise a PR”, “ship this” | Branch → commit → push → open PR using repo template; Sonar section filled via REST API tables |
+| [`legacy-port`](./legacy-port/) | `/legacy-port <url>`, “port this legacy page” | Legacy WAF (Vue) club-site widget → Surface fortress plugin: Tailwind + tenant tokens, Cast workflow via the Cast MCP, visual compare with the live page. Needs `npm install` in its `scripts/` ([README](./legacy-port/README.md)) |
 
 More skills can be added as top-level folders with a `SKILL.md`.
 
@@ -37,7 +38,7 @@ What it does:
 
 | Harness | Default install |
 |---------|-----------------|
-| Grok / Cursor / agents | Symlink → this clone (`git pull` stays live) |
+| Grok / Cursor / agents (Codex) | Symlink → this clone (`git pull` stays live) |
 | **Claude Code** | **Real copy** into `~/.claude/skills/` (more reliable than symlink) |
 
 Options:
@@ -177,6 +178,11 @@ ai-skills/
     SKILL.md
     references/
       policy-discovery.md
+  legacy-port/
+    SKILL.md
+    reference/        porting rules, tokens, Cast, tooling
+    scripts/          inventory, extract-css, reference-css, tokens, compare
+    templates/
   examples/
     fanxp-override/
       SKILL.md

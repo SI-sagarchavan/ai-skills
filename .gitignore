@@ -5,3 +5,4 @@
 .vscode/
 *.log
 raise-pr/scripts/node_modules/
+legacy-port/scripts/node_modules/

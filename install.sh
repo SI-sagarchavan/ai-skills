@@ -27,9 +27,9 @@ Usage:
 
 Harnesses (default: all):
   grok     ~/.grok/skills      (default: symlink)
-  claude   ~/.claude/skills    (default: copy — Claude Code friendly)
+  claude   $CLAUDE_CONFIG_DIR/skills, else ~/.claude/skills (default: copy)
   cursor   ~/.cursor/skills    (default: symlink)
-  agents   ~/.agents/skills    (default: symlink)
+  agents   ~/.agents/skills    (default: symlink; Codex reads this)
 
 Options:
   --copy     Copy skill dirs for all selected harnesses
@@ -37,8 +37,8 @@ Options:
   --list     Print plan only; do not install
   -h, --help Show this help
 
-After install, restart Claude Code (or start a new session) and type:
-  /raise-pr
+After install, restart Claude Code / Codex (or start a new session) and type:
+  /raise-pr   or   /legacy-port <url>
 
 Optional Grok config (load this repo without symlinks):
   [skills]
@@ -71,7 +71,7 @@ fi
 harness_dir() {
   case "$1" in
     grok) echo "${HOME}/.grok/skills" ;;
-    claude) echo "${HOME}/.claude/skills" ;;
+    claude) echo "${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/skills" ;;
     cursor) echo "${HOME}/.cursor/skills" ;;
     agents) echo "${HOME}/.agents/skills" ;;
     *) return 1 ;;

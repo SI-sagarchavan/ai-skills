@@ -1,0 +1,227 @@
+// Local-only preview of one fortress plugin, run through the renderer's own
+// plugin loader, executor and per-plugin stylesheet host — the same path a
+// published page takes, minus the page schema. Outside `next dev` it is a 404.
+//
+//   /dev/plugins/<pluginId>
+//     ?config=<json>        settings merged over the manifest defaults
+//     ?url=/some/path       page URL the plugin sees (default "/")
+//     ?font=<family>@<url>  preview-only @font-face, repeatable; served
+//                           same-origin through /dev/font-proxy
+//     ?device=mobile        device the plugin sees; by default x-device-type
+//                           when the proxy set it, else the User-Agent's
+//
+// The tenant is the one `DNS` in .env.local points at.
+import "../../../globals.css";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { NetworkProvider } from "@sikit/network-manager";
+import { initializeSDK, PageContextProvider } from "@sikit/renderer";
+import { renderPluginSkeleton } from "@surface/plugins/ssr-skeletons.generated";
+import type { SurfacePlugin } from "@surface/types";
+import { headers } from "next/headers";
+import { notFound } from "next/navigation";
+import { userAgent } from "next/server";
+import type React from "react";
+import { createPluginContext } from "@/lib/create-plugin-context";
+import { executeFortressPlugin } from "@/lib/plugin-executor";
+import { loadPlugin } from "@/lib/plugin-registry";
+import { PluginStyleHost } from "@/lib/plugin-style-host";
+import { createTelemetry } from "@/lib/telemetry/create-telemetry";
+import ClientSdkConfigProvider from "../../../components/client-sdk-config-provider";
+
+export const dynamic = "force-dynamic";
+
+type SearchParams = Record<string, string | string[] | undefined>;
+
+interface Manifest {
+  name?: string;
+  configSchema?: { name: string; default?: unknown }[];
+}
+
+const PLUGIN_ID = /^[a-z0-9][a-z0-9-]*$/;
+const DEVICES = new Set(["mobile", "tablet", "desktop"]);
+const FONT_FORMATS: Record<string, string> = {
+  woff2: "woff2",
+  woff: "woff",
+  ttf: "truetype",
+  otf: "opentype",
+};
+
+const first = (value: string | string[] | undefined) =>
+  Array.isArray(value) ? value[0] : value;
+const all = (value: string | string[] | undefined) =>
+  value === undefined ? [] : [value].flat();
+
+/** `https://pk.surface.fan-os.net/` -> `pk.surface.fan-os.net`, the host plugins expect. */
+const tenantHost = (dns: string | undefined) =>
+  (dns ?? "").replace(/^https?:\/\//, "").replace(/\/+$/, "");
+
+async function readManifest(pluginId: string): Promise<Manifest | null> {
+  // `next dev` runs from apps/web; the second root covers starting it from the repo root.
+  for (const root of [process.cwd(), path.join(process.cwd(), "apps/web")]) {
+    try {
+      const file = path.join(
+        root,
+        "plugins/fortress",
+        pluginId,
+        "manifest.json",
+      );
+      return JSON.parse(await readFile(file, "utf8")) as Manifest;
+    } catch {
+      // not under this root
+    }
+  }
+  return null;
+}
+
+function configFor(manifest: Manifest, overrides: string | undefined) {
+  const defaults = Object.fromEntries(
+    (manifest.configSchema ?? []).map((setting) => [
+      setting.name,
+      setting.default,
+    ]),
+  );
+  // Malformed JSON throws on purpose: the dev overlay says what is wrong.
+  return overrides ? { ...defaults, ...JSON.parse(overrides) } : defaults;
+}
+
+/** `acuminpro-bold@https://…/acuminpro-bold.woff2` -> an @font-face rule, or null. */
+function fontFace(spec: string): string | null {
+  const at = spec.indexOf("@");
+  const family = spec.slice(0, at);
+  let src: URL;
+  try {
+    src = new URL(spec.slice(at + 1));
+  } catch {
+    return null;
+  }
+  const format =
+    FONT_FORMATS[src.pathname.split(".").pop()?.toLowerCase() ?? ""];
+  if (
+    at < 1 ||
+    !/^[\w-]+$/.test(family) ||
+    src.protocol !== "https:" ||
+    !format
+  ) {
+    return null;
+  }
+  const url = `/dev/font-proxy?src=${encodeURIComponent(src.href)}`;
+  return `@font-face { font-family: "${family}"; src: url("${url}") format("${format}"); font-display: swap; }`;
+}
+
+const consoleTelemetry = {
+  captureEvent: (event: string, properties?: Record<string, unknown>) =>
+    console.info(`[dev/plugins] event ${event}`, properties ?? {}),
+  captureException: (error: unknown, properties?: Record<string, unknown>) =>
+    console.error("[dev/plugins] exception", error, properties ?? {}),
+};
+
+export default async function DevPluginPreview({
+  params,
+  searchParams,
+}: Readonly<{
+  params: Promise<{ pluginId: string }>;
+  searchParams: Promise<SearchParams>;
+}>) {
+  if (process.env.NODE_ENV !== "development") notFound();
+
+  const { pluginId } = await params;
+  const query = await searchParams;
+  const manifest = PLUGIN_ID.test(pluginId)
+    ? await readManifest(pluginId)
+    : null;
+  const plugin = manifest
+    ? await loadPlugin<SurfacePlugin>("fortress", pluginId)
+    : null;
+  if (!manifest || !plugin) notFound();
+
+  const dns = tenantHost(process.env.DNS);
+  const requestHeaders = await headers();
+  const fromUserAgent = userAgent({ headers: requestHeaders }).device.type;
+  const requested =
+    first(query.device) ??
+    requestHeaders.get("x-device-type") ??
+    (fromUserAgent === "mobile" || fromUserAgent === "tablet"
+      ? fromUserAgent
+      : "desktop");
+  const deviceType = DEVICES.has(requested)
+    ? (requested as "mobile" | "tablet" | "desktop")
+    : "desktop";
+  const url = first(query.url) ?? "/";
+  const pageContext = {
+    url,
+    routeKey: url.split("/").find(Boolean) ?? "home",
+    dns,
+  };
+
+  await initializeSDK({
+    dns,
+    loadPlugin,
+    executeFortressPlugin,
+    telemetry: createTelemetry(dns, "server"),
+    renderPluginSkeleton,
+  });
+
+  const ctx = {
+    ...createPluginContext({
+      tenantId: dns,
+      scopeKey: `dev-preview-${pluginId}`,
+      config: configFor(manifest, first(query.config)),
+      pageContext,
+    }),
+    telemetry: consoleTelemetry,
+    deviceType,
+  };
+  // Same executor and timeouts as a page render (packages/renderer query-engine).
+  const result = await executeFortressPlugin(plugin, ctx, {
+    prepareMs: 10000,
+    executeMs: 10000,
+  });
+  const PluginComponent =
+    result?.type === "replace"
+      ? (result.component as React.ComponentType<{
+          originalProps?: Record<string, unknown>;
+        }>)
+      : null;
+
+  const fonts = all(query.font)
+    .map(fontFace)
+    .filter((rule): rule is string => rule !== null)
+    .join("\n");
+
+  return (
+    <html lang="en">
+      <head>
+        <title>{`${manifest.name ?? pluginId} · dev preview`}</title>
+        {fonts && (
+          <style
+            data-dev-preview-fonts=""
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: built from validated ?font= values (family [\w-]+, https URL, known font extension), local dev only
+            dangerouslySetInnerHTML={{ __html: fonts }}
+          />
+        )}
+        <PluginStyleHost pluginIds={[pluginId]} />
+      </head>
+      <body className="parent-container" data-device-type={deviceType}>
+        <ClientSdkConfigProvider dns={dns}>
+          <NetworkProvider>
+            <PageContextProvider value={pageContext}>
+              {/* Stands in for the page container: legacy content sits 15px in from each edge. */}
+              <main style={{ padding: "0 15px" }}>
+                {PluginComponent ? (
+                  <PluginComponent originalProps={{}} />
+                ) : (
+                  <p style={{ padding: 16, fontFamily: "sans-serif" }}>
+                    {result?.type === "wrap"
+                      ? `${pluginId} wraps a template, so it can only be previewed on a page that binds it.`
+                      : `${pluginId} returned nothing — the dev server log has the error.`}
+                  </p>
+                )}
+              </main>
+            </PageContextProvider>
+          </NetworkProvider>
+        </ClientSdkConfigProvider>
+      </body>
+    </html>
+  );
+}

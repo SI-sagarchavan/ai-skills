@@ -1,0 +1,49 @@
+// Local-only: serves a font from another origin as same-origin, so the
+// /dev/plugins preview can use fonts a tenant has not registered in Font
+// Manager yet (browsers refuse cross-origin fonts that lack CORS headers).
+// Outside `next dev` it is a 404.
+import { type NextRequest, NextResponse } from "next/server";
+
+const CONTENT_TYPES: Record<string, string> = {
+  woff2: "font/woff2",
+  woff: "font/woff",
+  ttf: "font/ttf",
+  otf: "font/otf",
+};
+
+export async function GET(request: NextRequest) {
+  if (process.env.NODE_ENV !== "development") {
+    return new NextResponse(null, { status: 404 });
+  }
+
+  let src: URL;
+  try {
+    src = new URL(request.nextUrl.searchParams.get("src") ?? "");
+  } catch {
+    return NextResponse.json(
+      { error: "src must be an absolute URL" },
+      { status: 400 },
+    );
+  }
+  const contentType =
+    CONTENT_TYPES[src.pathname.split(".").pop()?.toLowerCase() ?? ""];
+  if (src.protocol !== "https:" || !contentType) {
+    return NextResponse.json(
+      {
+        error: "src must be an https URL to a .woff2, .woff, .ttf or .otf file",
+      },
+      { status: 400 },
+    );
+  }
+
+  const upstream = await fetch(src);
+  if (!upstream.ok) {
+    return NextResponse.json(
+      { error: `upstream returned ${upstream.status}` },
+      { status: 502 },
+    );
+  }
+  return new NextResponse(upstream.body, {
+    headers: { "content-type": contentType },
+  });
+}

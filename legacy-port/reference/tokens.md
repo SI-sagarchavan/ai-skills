@@ -64,9 +64,11 @@ follows.
   - For the others use arbitrary breakpoints: `min-[992px]:`, `min-[1200px]:`,
     `max-[767px]:`. Copy the legacy media queries; don't round them to
     Tailwind's.
-- **Fonts.** The family comes from the typography token. Legacy-only families
-  (icon fonts, for instance) are registered in Font Manager and used with
-  `font-['waf-font-icon']`.
+- **Fonts.** The family comes from the typography token, and the tenant's
+  Font Manager fonts are already on every page. Use the tenant's families and
+  its icon font as `tokens.mjs` maps them; do not use the legacy site's font
+  files or icon font. For a breakpoint on a typography token see
+  [porting-rules.md](porting-rules.md) (Typography tokens in practice).
 - **Never** add a tenant class, colour or font to the renderer, and never add
   a global stylesheet. A plugin may ship a small `ui/Component.css` for what
   Tailwind cannot express, such as complex `::before` content or keyframes.

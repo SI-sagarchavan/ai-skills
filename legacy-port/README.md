@@ -6,7 +6,9 @@ RR) to Surface fortress plugins. The ported widgets are:
 
 - **React + Tailwind**, styled with the tenant's design tokens
   (`text-text_main_high`, `p-spacing_4`, `h3_bold` …);
-- **fed by Cast workflows**, found or created through the Cast MCP;
+- **fed by Cast workflows**, found or created through the Cast MCP, or, when
+  you say "no Cast", by a configurable feed fetched through
+  `ctx.networkManager` at the tenant host (`reference/direct-feed.md`);
 - **verified visually** against the live site, within a tolerance.
 
 The agent does the porting: data, markup, behaviour. Five scripts do the
@@ -42,7 +44,7 @@ holds the porting rules, the token system, the Cast flow and the tooling.
    - set `DNS` in `apps/web/.env.local` to the tenant's Surface host, e.g.
      `DNS=https://pk.surface.fan-os.net/`;
    - run `pnpm dev`.
-6. Connect the Cast MCP with the tenant's client header:
+6. (Only for Cast-fed widgets) connect the Cast MCP with the tenant's client header:
    [reference/cast.md](reference/cast.md#setup).
 
 ## Use
@@ -59,7 +61,8 @@ https://www.punjabkingsipl.in/<page> with the legacy-port skill".
 The agent then:
 
 1. lists the page's widgets, flagging the ones already ported;
-2. finds or proposes the Cast workflow for each widget's data;
+2. finds or proposes the Cast workflow for each widget's data (or, without
+   Cast, picks a maintained API or the legacy feed as a configurable source);
 3. maps the legacy styling to tokens and proposes any missing tenant token
    values;
 4. builds the plugin in `fortress/<tenant>-<widget>/`;

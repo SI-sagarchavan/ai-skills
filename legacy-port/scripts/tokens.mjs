@@ -26,6 +26,12 @@ import {
 } from "./lib/color.mjs";
 import { loadPortConfig } from "./lib/config.mjs";
 import {
+  legacyGlyphCodes,
+  mapGlyphs,
+  matchTypography,
+  readTenantFonts,
+} from "./lib/tenant-fonts.mjs";
+import {
   rendererEnv,
   rendererRoot,
   requirePluginsRoot,
@@ -331,6 +337,32 @@ if (existsSync(utilsDist)) {
   writeFileSync(path.join(config.workDir, "theme.css"), themeCss);
 }
 
+// ---- the tenant's own fonts (Font Manager): typography + SVG icon font ----
+// Only `fonts.css` is read from the SDUI document.
+let tenantFonts = null;
+try {
+  const sduiApi = mainConfig?.SDUI?.api;
+  const sdui = sduiApi ? await getJson(sduiApi) : null;
+  const hrefs = Array.isArray(sdui?.fonts?.css) ? sdui.fonts.css : [];
+  tenantFonts = await readTenantFonts({ host: DNS, hrefs });
+  writeFileSync(
+    path.join(config.workDir, "tenant-fonts.json"),
+    JSON.stringify(tenantFonts, null, 2),
+  );
+} catch (error) {
+  console.warn(`tenant fonts not read: ${error.message}`);
+}
+const legacyCss = readFileSync(legacyFile, "utf8");
+const glyphMap = tenantFonts
+  ? mapGlyphs(legacyGlyphCodes(legacyCss), tenantFonts)
+  : [];
+const fontMap = tenantFonts
+  ? families.map((legacy) => ({
+      legacy,
+      tenant: matchTypography(legacy, tenantFonts),
+    }))
+  : [];
+
 const report = {
   tenant: DNS,
   themeId,
@@ -345,6 +377,20 @@ const report = {
   radius,
   fontSizes,
   fontFamilies: families,
+  tenantFonts: tenantFonts && {
+    typography: tenantFonts.stylesheets
+      .filter((s) => s.kind === "typography")
+      .map((s) => ({ families: s.families, url: s.url })),
+    icons: tenantFonts.stylesheets
+      .filter((s) => s.kind === "icons")
+      .map((s) => ({
+        families: s.families,
+        glyphs: Object.keys(s.glyphs ?? {}).length,
+        url: s.url,
+      })),
+  },
+  fontMap,
+  glyphMap,
 };
 writeFileSync(
   path.join(config.workDir, "tokens.json"),
@@ -394,6 +440,48 @@ console.log(
   })}`,
 );
 console.log(`font families: ${families.join(", ") || "(none)"}`);
+if (tenantFonts) {
+  const typo = tenantFonts.stylesheets.filter((s) => s.kind === "typography");
+  const icons = tenantFonts.stylesheets.filter((s) => s.kind === "icons");
+  console.log(
+    `\ntenant fonts (Font Manager, already on every page): ${
+      [
+        ...typo.map(
+          (s) =>
+            `${s.families.join("/")} (${[...new Set(s.faces.map((f) => f.weight))].sort().join(",")})`,
+        ),
+        ...icons.map(
+          (s) =>
+            `icon font "${s.families[0]}" (${Object.keys(s.glyphs ?? {}).length} glyphs)`,
+        ),
+      ].join("; ") || "(none found)"
+    }`,
+  );
+  for (const { legacy, tenant } of fontMap) {
+    console.log(
+      tenant
+        ? `  ${legacy} -> tenant "${tenant.family}" (${tenant.weights.join(",")})`
+        : `  ${legacy} -> no tenant equivalent`,
+    );
+  }
+  if (glyphMap.length) {
+    console.log("\nlegacy icon glyphs -> the tenant's icon font:");
+    for (const g of glyphMap) {
+      console.log(
+        g.classes.length
+          ? `  \\${g.code} -> ${g.classes.join(" | ")}  (font-family "${g.family}")`
+          : `  \\${g.code} -> NO GLYPH on the tenant's icon font`,
+      );
+    }
+    console.log(
+      "  Use the tenant's icon font (its classes, or its family with the same code point); never ship or register the legacy icon font (reference/porting-rules.md, Icons).",
+    );
+  }
+} else {
+  console.log(
+    "\ntenant fonts unknown: check the main-config SDUI document before assuming a font must be registered.",
+  );
+}
 if (unknownProposals.length) {
   console.log(
     `\nNOT existing token names (fix legacy-port.json theme.proposed): ${unknownProposals.join(", ")}`,

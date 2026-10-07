@@ -49,7 +49,25 @@ const readWork = (name) => {
 };
 const fonts = JSON.parse(readWork("fonts.json") ?? "{}");
 const themeCss = readWork("theme.css");
-const PLUGIN_URL = values["plugin-url"] ?? previewUrl(config, fonts);
+// tokens.mjs records the tenant's own fonts. When known, the plugin page gets
+// them the way Surface serves them, and only the legacy fonts the user agreed
+// to register (`registerFonts`) are added on top, so compare reflects what
+// the tenant will actually render.
+const tenantFonts = JSON.parse(readWork("tenant-fonts.json") ?? "null");
+config.tenantHost = tenantFonts?.host ?? null;
+const pluginFonts = tenantFonts
+  ? Object.fromEntries(
+      Object.entries(fonts).filter(([family]) =>
+        config.registerFonts.includes(family),
+      ),
+    )
+  : fonts;
+if (!tenantFonts) {
+  console.warn(
+    "no tenant-fonts.json: run tokens.mjs. Legacy fonts are loaded for the plugin, which a tenant without them will not do.",
+  );
+}
+const PLUGIN_URL = values["plugin-url"] ?? previewUrl(config, pluginFonts);
 const OUT = path.join(config.workDir, "compare");
 mkdirSync(OUT, { recursive: true });
 const LANDMARK_PROPS = [
@@ -301,6 +319,67 @@ if (config.mobileMarkup) {
       runs.push({ width, mobile: true, label: `${width}px-phone` });
   }
 }
+/**
+ * Font families the plugin draws text or icon glyphs with that no loaded font
+ * face provides: the tenant does not register them (an icon font from the
+ * legacy site, say), so Surface would fall back to a system font or draw the
+ * browser's empty missing-glyph box. Checked on the first family of each
+ * element that has text and each pseudo-element that has content.
+ */
+const missingFonts = (page, rootSelector) =>
+  page.evaluate((selector) => {
+    const root = document.querySelector(selector);
+    if (!root) return [];
+    const SYSTEM = new Set([
+      "serif",
+      "sans-serif",
+      "monospace",
+      "cursive",
+      "fantasy",
+      "system-ui",
+      "ui-sans-serif",
+      "ui-serif",
+      "ui-monospace",
+      "-apple-system",
+      "blinkmacsystemfont",
+      "arial",
+      "helvetica",
+      "helvetica neue",
+      "times new roman",
+      "times",
+      "courier new",
+      "courier",
+    ]);
+    const used = new Map();
+    const note = (cs) => {
+      const family = cs.fontFamily
+        .split(",")[0]
+        .trim()
+        .replace(/^["']|["']$/g, "");
+      if (family && !SYSTEM.has(family.toLowerCase())) {
+        used.set(family, (used.get(family) ?? 0) + 1);
+      }
+    };
+    for (const el of [root, ...root.querySelectorAll("*")]) {
+      const hasText = [...el.childNodes].some(
+        (n) => n.nodeType === 3 && n.textContent.trim(),
+      );
+      if (hasText) note(getComputedStyle(el));
+      for (const pseudo of ["::before", "::after"]) {
+        const cs = getComputedStyle(el, pseudo);
+        if (cs.content !== "none" && cs.content !== "normal") note(cs);
+      }
+    }
+    const loaded = new Set(
+      [...document.fonts]
+        .filter((f) => f.status === "loaded")
+        .map((f) => f.family.replace(/^["']|["']$/g, "")),
+    );
+    return [...used]
+      .filter(([family]) => !loaded.has(family))
+      .map(([family, count]) => ({ family, count }));
+  }, rootSelector);
+
 for (const { width, mobile, label } of runs) {
   log(`${label}: opening both pages`);
   const legacy = await openLegacy(browser, config, { width, mobile });
@@ -321,6 +400,7 @@ for (const { width, mobile, label } of runs) {
     links: [L.links.length, P.links.length],
     linkDiff: firstDifference(L.links, P.links),
   };
+  entry.missingFonts = await missingFonts(plugin.page, config.pluginRoot);
   entry.landmarks = [];
   for (const mark of config.landmarks) {
     const a = await probe(legacy.page, "legacy", mark.legacy);
@@ -402,6 +482,10 @@ for (const [label, entry] of Object.entries(report.viewports)) {
   }
   for (const mark of entry.landmarks) {
     for (const p of mark.problems) problems.push(`${label}: ${p}`);
+  }
+  for (const { family, count } of entry.missingFonts ?? []) {
+    const message = `font "${family}" is used by the plugin (${count} places) but no loaded font face provides it: the tenant does not register it. Use the tenant's family or icon font (tokens.mjs lists them), or add it to registerFonts if the user agreed to register it`;
+    if (!problems.includes(message)) problems.push(message);
   }
   for (const [state, px] of Object.entries(entry.states)) {
     const dw = Math.abs(px.legacy[0] - px.plugin[0]);

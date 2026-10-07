@@ -19,6 +19,13 @@ export const DEFAULTS = {
   // User-Agent). When true, extraction and comparison also run with
   // `mobileUserAgent` at every width below `mobileBreakpoint`.
   mobileMarkup: false,
+  // The widget is drawn by a browser script, so the legacy page loads with JavaScript on.
+  clientRendered: false,
+  // Legacy font families the user agreed to register in Font Manager because the
+  // tenant has no equivalent. Once tokens.mjs has read the tenant's own fonts,
+  // compare loads ONLY these legacy fonts, so a plugin that leans on a legacy
+  // family the tenant lacks fails the compare as it would on Surface.
+  registerFonts: [],
   mobileBreakpoint: 768,
   mobileUserAgent:
     "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",

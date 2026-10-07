@@ -16,7 +16,8 @@ design tokens, fed by a Cast workflow, and checked against the live widget.
 or its `apps/web/plugins`); plugin dirs are relative to the plugins repo root.
 Details: [reference/porting-rules.md](reference/porting-rules.md) (how to
 port), [reference/tokens.md](reference/tokens.md) (Tailwind and the token
-system), [reference/cast.md](reference/cast.md) (data through Cast) and
+system), [reference/cast.md](reference/cast.md) (data through Cast),
+[reference/direct-feed.md](reference/direct-feed.md) (data without Cast) and
 [reference/tooling.md](reference/tooling.md) (scripts, `legacy-port.json`,
 troubleshooting).
 
@@ -30,8 +31,17 @@ troubleshooting).
   where `tokens.mjs` found no token **and** the user agreed to it.
 - Never ship the legacy stylesheet. `legacy.css` is the spec you read, not a
   file you copy.
+- Fonts and icons come from the **tenant's own Font Manager** (typography
+  families and an SVG icon font, both linked on every page). Never use the
+  legacy site's font files, and in particular never its icon font
+  (`waf-font-icon` and the like): the tenant does not register it, so the icons
+  render as empty boxes on Surface. `tokens.mjs` prints the mapping
+  ([reference/porting-rules.md](reference/porting-rules.md), Fonts and Icons).
 - Never create or change a Cast workflow, or a tenant's theme, without the
   user's go-ahead: say what you will create and wait.
+- Never write a tenant host, domain or CDN URL in a plugin. Feed URLs are
+  built from `ctx.tenantId` and a configurable path; ids that change per
+  tenant or page (series, team, client) are settings in the manifest.
 - Never commit or push. Show the user what changed; they commit.
 - `getclientinfo` contains credentials: read only the fields you need, never
   print or save the whole response.
@@ -53,9 +63,11 @@ cd <skill>/scripts && npm install
   It needs the dev-only route `apps/web/app/dev/plugins/[pluginId]/page.tsx`
   and `apps/web/app/dev/font-proxy/route.ts`; if missing, copy them from
   `<skill>/templates/dev-preview/` (drop `.txt`) and ask before committing.
-- Cast MCP: the `cast` MCP server connected, with the tenant's client header
+- Cast MCP (only when the data goes through Cast): the `cast` MCP server
+  connected, with the tenant's client header
   ([reference/cast.md](reference/cast.md)). If its tools are missing or
-  return 401, tell the user before starting step 2.
+  return 401, tell the user before starting step 2. If the user said "no
+  Cast", skip this.
 
 ## 1. Inventory the page
 
@@ -73,14 +85,28 @@ status:
   site. Reuse its markup, parser and Cast workflow in a new tenant plugin,
   then redo steps 3–4 for this tenant.
 - `new` means it needs porting.
+- A `mounted:` line means the placeholder is an empty
+  `<div class="si-waf-widget" widget-id="…">` that a browser script fills in
+  (the inventory may list its component as `si-ads` or similar; the real
+  widget is the `script:` / `vue:` it prints, found through the client's
+  `widgetConfig.json`). Such a widget has **no server-rendered markup**: set
+  `"clientRendered": true` in `legacy-port.json` so the scripts load the legacy
+  page with JavaScript on. The `apis:` line is its legacy feed and `mount:` its
+  `series-id` / `team-id` attributes, which become settings.
 
 Show the user the list and propose an order: shell widgets first if not yet
 ported, then body widgets by how many pages use them. Port one widget at a
 time, end to end (steps 2–6), before the next.
 
-## 2. Data through Cast
+## 2. Data
 
-Follow [reference/cast.md](reference/cast.md):
+Ask which route if the user has not said. **No Cast** ("no cast", no workflow
+available): follow [reference/direct-feed.md](reference/direct-feed.md): find
+a maintained API for the data, else use the legacy production feed as a
+configurable `api_url`, built from `ctx.tenantId`, with defaults in the
+manifest; save a real response as `sample.json`; skip the Cast steps below.
+
+**Through Cast:** follow [reference/cast.md](reference/cast.md):
 
 1. From the inventory, read the widget's feed template, parser entry and
    settings. Fetch one real legacy feed response.
@@ -93,8 +119,9 @@ Follow [reference/cast.md](reference/cast.md):
 ## 3. Map the styling to tokens
 
 1. Create `fortress/<pluginId>/legacy-port.json` from the inventory's
-   `suggestedConfig`. Confirm `root` in the live HTML with JavaScript off,
-   and list every visual `state` and `hover`.
+   `suggestedConfig`. Confirm `root` in the live HTML with JavaScript off
+   (for a `clientRendered` widget, on the page once the script has run), and
+   list every visual `state` and `hover`.
 2. Run:
 
    ```bash
@@ -109,6 +136,18 @@ Follow [reference/cast.md](reference/cast.md):
    existing token names only, re-run, and show the user the list it prints
    under "to set in the tenant theme". Agree with the user on anything still
    `NO TOKEN` before writing markup.
+4. Read what `tokens.mjs` prints under "tenant fonts":
+   - **Typography:** each legacy family is mapped to the tenant's family and
+     weights (e.g. `acuminpro-bold` → "Acumin Pro" 700). Use the tenant's
+     family; do not register the legacy files.
+   - **Icons:** each legacy glyph code point (`\e85c`) is mapped to the tenant
+     icon font's class (`icon_pk_plane`) and family (`pk`). Draw icons with the
+     tenant's icon font. A glyph with `NO GLYPH` has no equivalent: tell the
+     user and agree on an SVG or on registering the legacy glyph before
+     writing markup.
+   - A legacy family with no tenant equivalent may be registered only if the
+     user agrees; then list it in `legacy-port.json` `registerFonts`, which is
+     the only way the compare loads a legacy font.
 
 ## 4. Build the plugin
 
@@ -121,9 +160,12 @@ Follow [reference/porting-rules.md](reference/porting-rules.md) and
 2. Markup: semantic React that reproduces the Vue template's content,
    order and visual structure, styled with token utilities from
    `legacy.css` + `tokens.json`. Put `data-legacy-port="<pluginId>"` on the
-   root element.
-3. Data: `prepare` calls the Cast workflow (`ctx.cast(args)`); port the
-   legacy parser to shape the workflow output into the view model.
+   root element. Icons use the tenant's icon font from step 3.4.
+3. Data: with Cast, `prepare` calls the workflow (`ctx.cast(args)`); without
+   it, `prepare` fetches the configured feed through `ctx.networkManager` at
+   `https://<ctx.tenantId><path>` ([direct-feed.md](reference/direct-feed.md)).
+   Either way, port the legacy parser to shape the response into the view
+   model.
 4. Behaviour: port every interaction from the Vue methods and browser script.
 5. Phones: fetch the live page with a phone and a desktop User-Agent. If the
    widget HTML differs, follow "Device-specific markup" in the porting rules.
@@ -135,6 +177,11 @@ For each non-default `state`, add the `plugin` steps that reach it, then:
 ```bash
 node <skill>/scripts/compare.mjs fortress/<pluginId>
 ```
+
+The plugin page loads the tenant's own fonts and icon font the way Surface
+serves them, and no legacy font unless it is in `registerFonts`; so a missing
+icon or a fallback font shows up here as pixel and landmark differences, and
+is a bug in the plugin, not something to excuse with tolerance.
 
 PASS needs, at every compare width and state:
 - pixel difference within `tolerance.pixelRatio` (default 1%);
@@ -164,7 +211,8 @@ Write that reason in the README. Repeat until PASS.
    are not typed in `apps/web`):
    - the parser, using `sample.json`;
    - config;
-   - `prepare` with a mocked `ctx.cast`;
+   - `prepare` with a mocked `ctx.cast` (or `ctx.networkManager.get` for a
+     direct feed, including the URL built from `ctx.tenantId`);
    - the component render and every interaction, including failures;
    - `index.ts`.
 
@@ -174,7 +222,8 @@ Write that reason in the README. Repeat until PASS.
    on the plugin dir; `npx tsc --noEmit -p apps/web/tsconfig.json` shows no
    errors in the plugin.
 3. README:
-   - description and data source (the Cast workflow id and inputs);
+   - description and data source (the Cast workflow id and inputs, or for a
+     direct feed the source chosen, why, the URL template and each setting);
    - config table;
    - behaviour, with every deliberate difference from the legacy widget;
    - token notes (tokens added to the theme, and any raw values with the
@@ -189,6 +238,8 @@ Write that reason in the README. Repeat until PASS.
    - what to commit: the plugin dir, plus `ssr-skeletons.generated.tsx` if
      `freshData`;
    - the admin steps: set the proposed theme tokens on the tenant, register
-     and enable the plugin, bind it and its Cast workflow on the page
-     template, register the fonts in Font Manager, set page-level styling in
-     the builder, publish.
+     and enable the plugin, bind it on the page template with its settings
+     (series, team, feed path) and its Cast workflow if it uses one, register
+     in Font Manager only the fonts the tenant lacks (normally none; the
+     `registerFonts` the user agreed to), set page-level styling in the
+     builder, publish.

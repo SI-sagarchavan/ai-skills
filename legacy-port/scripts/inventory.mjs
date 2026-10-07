@@ -161,6 +161,63 @@ function portStatus(widget) {
   return "new";
 }
 
+// ---- widgets a browser script mounts (no server-rendered markup) ----
+// Some placeholders only hold `<div class="si-waf-widget" widget-id="si-xyz-01">`;
+// the client's widgetConfig.json maps that id to a class, a script and its feeds.
+function findKey(obj, key) {
+  if (!obj || typeof obj !== "object") return null;
+  if (key in obj) return obj[key];
+  for (const value of Object.values(obj)) {
+    const hit = findKey(value, key);
+    if (hit) return hit;
+  }
+  return null;
+}
+const widgetConfig = (() => {
+  const file = WAF_JS && CLIENT && path.join(WAF_JS, "clients", CLIENT, "js", "widgetConfig.json");
+  try {
+    return file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+  } catch {
+    return null;
+  }
+})();
+
+function placeholderHtml(id, allIds) {
+  if (!id) return "";
+  const at = liveHtml.indexOf(`id="${id}"`);
+  if (at < 0) return "";
+  const ends = allIds
+    .filter((other) => other && other !== id)
+    .map((other) => liveHtml.indexOf(`id="${other}"`, at + 1))
+    .filter((i) => i > at);
+  return liveHtml.slice(at, ends.length ? Math.min(...ends) : at + 20000);
+}
+
+function mountedWidget(id, allIds) {
+  const tag = placeholderHtml(id, allIds).match(
+    /<[a-z]+\b[^>]*\bwidget-id="([^"]+)"[^>]*>/,
+  );
+  if (!tag) return null;
+  const widgetId = tag[1];
+  const attr = (name) => tag[0].match(new RegExp(`\\b${name}="([^"]*)"`))?.[1] ?? null;
+  const entry = findKey(widgetConfig?.widgets ?? widgetConfig, widgetId);
+  const vue =
+    entry?.className && CLIENT
+      ? listFiles(path.join(WAF_JS, "clients", CLIENT), (f) =>
+          f.endsWith(`${path.sep}${entry.className}.vue`),
+        ).map(rel)[0] ?? null
+      : null;
+  return {
+    widgetId,
+    seriesId: attr("series-id"),
+    teamId: attr("team-id"),
+    className: entry?.className ?? null,
+    script: entry?.fileName && CLIENT ? `clients/${CLIENT}/${entry.fileName}` : null,
+    vue,
+    apis: entry?.apis ?? null,
+  };
+}
+
 // ---- the widgets ----
 function placeholders(html) {
   return [
@@ -219,7 +276,8 @@ const widgets = [...shell, ...body].map((p, index) => {
   const module = p.id ? modulesById.get(p.id) : undefined;
   const widget = `${p.component}/${p.template.replaceAll("_", "-")}`;
   const vue = vueFile(p.component, p.template);
-  let pluginId = `${values.prefix}-${p.component.replace(/^si-/, "")}`;
+  const mounted = mountedWidget(p.id, allIds);
+  let pluginId = `${values.prefix}-${mounted?.className ?? p.component.replace(/^si-/, "")}`;
   if (seenPluginIds.has(pluginId))
     pluginId = `${pluginId}-${normalise(p.template)}`;
   seenPluginIds.add(pluginId);
@@ -233,9 +291,10 @@ const widgets = [...shell, ...body].map((p, index) => {
     mobileTemplate: p.mobile,
     widget,
     root,
+    mounted,
     status: portStatus(widget),
     legacy: {
-      vue,
+      vue: mounted?.vue ?? vue,
       parser: parserEntries(p.component),
       browserScripts: browserScripts(vue),
       feeds: widgetFeeds[p.component] ?? null,
@@ -249,7 +308,8 @@ const widgets = [...shell, ...body].map((p, index) => {
         ? {
             pluginId,
             legacyUrl: pageUrl.href,
-            root: root ?? ".<root-class>",
+            root: root ?? (mounted?.className ? `.waf-${mounted.className}` : ".<root-class>"),
+            ...(mounted ? { clientRendered: true } : {}),
             pluginRoot: `[data-legacy-port="${pluginId}"]`,
             widget,
             states: [{ name: "default" }],
@@ -311,6 +371,18 @@ for (const w of widgets) {
   console.log(
     `${String(w.index).padStart(2)}. [${w.area}] ${w.widget}${title} — root ${w.root ?? "?"} — ${w.status}`,
   );
+  if (w.mounted) {
+    console.log(
+      `      mounted: ${w.mounted.widgetId} by a browser script — client-rendered (set "clientRendered": true)`,
+    );
+    if (w.mounted.script) console.log(`      script:  ${w.mounted.script}`);
+    if (w.mounted.apis) console.log(`      apis:    ${JSON.stringify(w.mounted.apis)}`);
+    const ids = [
+      w.mounted.seriesId && `series-id=${w.mounted.seriesId}`,
+      w.mounted.teamId && `team-id=${w.mounted.teamId}`,
+    ].filter(Boolean);
+    if (ids.length) console.log(`      mount:   ${ids.join(" ")}`);
+  }
   if (w.legacy.vue) console.log(`      vue:     ${w.legacy.vue}`);
   for (const p of w.legacy.parser) console.log(`      parser:  ${p}`);
   for (const s of w.legacy.browserScripts) console.log(`      browser: ${s}`);

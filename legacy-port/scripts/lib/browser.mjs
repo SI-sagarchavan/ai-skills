@@ -103,10 +103,17 @@ export async function openLegacy(
 ) {
   const context = await browser.newContext({
     ...contextOptions(config, { width, height, mobile }),
-    javaScriptEnabled: false,
+    javaScriptEnabled: config.clientRendered === true,
   });
   const page = await context.newPage();
   page.setDefaultTimeout(60_000);
+  if (config.clientRendered) {
+    // Widgets refresh on a timer and re-mount; freeze that so a measurement
+    // never lands mid-render.
+    await page.addInitScript(() => {
+      window.setInterval = () => 0;
+    });
+  }
   await page.route("**/*", (route) => {
     const url = route.request().url();
     return url.startsWith(`${config.origin}/`) || url.startsWith("data:")
@@ -114,6 +121,9 @@ export async function openLegacy(
       : route.abort();
   });
   await page.goto(config.legacyUrl, { waitUntil: "load", timeout: 90_000 });
+  if (config.clientRendered) {
+    await page.waitForSelector(config.root, { timeout: 30_000 });
+  }
   return { context, page };
 }
 
@@ -128,8 +138,36 @@ export async function openPlugin(
   );
   const page = await context.newPage();
   page.setDefaultTimeout(60_000);
+  if (config.tenantHost) await serveTenantAssets(page, url, config.tenantHost);
   await page.goto(url, { waitUntil: "load", timeout: 90_000 });
   return { context, page };
+}
+
+/**
+ * On Surface the edge serves `/static-assets/*` (the tenant's Font Manager
+ * fonts, icon font and images) from the tenant. The local renderer does not,
+ * so the plugin page would 404 them and fall back to system fonts and empty
+ * icon boxes. Serve them from the tenant host for the plugin page only.
+ */
+async function serveTenantAssets(page, pluginUrl, tenantHost) {
+  const origin = new URL(pluginUrl).origin;
+  await page.route(`${origin}/static-assets/**`, async (route) => {
+    const { pathname, search } = new URL(route.request().url());
+    try {
+      const res = await fetch(`https://${tenantHost}${pathname}${search}`);
+      await route.fulfill({
+        status: res.status,
+        headers: {
+          "content-type":
+            res.headers.get("content-type") ?? "application/octet-stream",
+          "access-control-allow-origin": "*",
+        },
+        body: Buffer.from(await res.arrayBuffer()),
+      });
+    } catch {
+      await route.abort();
+    }
+  });
 }
 
 /**

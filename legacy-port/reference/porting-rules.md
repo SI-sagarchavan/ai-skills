@@ -34,9 +34,13 @@ fortress/<pluginId>/
                         { type: "replace", component: (props) =>
                           createElement(Component, { data: prepared, loading: props.loading }) }
   logic/types.ts        workflow and view-model types: the contract between prepare and the UI
-  logic/config.ts       readConfig(ctx.config): snake_case settings -> typed config
+  logic/config.ts       readConfig(ctx.config): snake_case settings -> typed config;
+                        defaults come from manifest.configSchema (undefined
+                        keys dropped before the merge)
   logic/parse-*.ts      the legacy parser, ported to the Cast response
-  logic/prepare.ts      ctx.cast() and parse
+  logic/prepare.ts      ctx.cast() and parse; or, without Cast,
+                        ctx.networkManager.get(https://<ctx.tenantId><path>)
+                        and parse (direct-feed.md)
   ui/Component.tsx      "use client"; `loading || !data` renders the Skeleton
   ui/Skeleton.tsx       same layout and token classes as the component, aria-busy
   sample.json           one real Cast workflow response, the test fixture
@@ -61,10 +65,15 @@ what Tailwind cannot express (see [tokens.md](tokens.md)).
 
 ## Data
 
-See [cast.md](cast.md). In short:
+See [cast.md](cast.md) (Cast) or [direct-feed.md](direct-feed.md) (no Cast:
+`ctx.networkManager`, tenant-built URL, configurable path). In short:
 
 - `prepare` calls `ctx.cast(args)`. Browser refetches go through
-  `ctx.callWorkflow`, passed to the component.
+  `ctx.callWorkflow`, passed to the component. Without Cast it fetches the
+  configured feed from `https://<ctx.tenantId><path>` and the component
+  refetches the same URL.
+- No tenant host is written in the plugin; series, team and client ids are
+  manifest settings, never read from the page URL.
 - Port the parser faithfully, including the aliases and quirks the markup
   relies on. Test it with `sample.json` and every response shape it handles.
 - On failure: `ctx.telemetry.captureException`, then return a model that
@@ -147,10 +156,61 @@ and compare the widget HTML. If it differs:
   container padding) is not the widget's. Neutralise it in
   `legacy-port.json` for the comparison, and tell the user to set it in the
   builder (page or layout). Note it in the README.
-- Fonts: `reference-css.mjs` lists the families and the first file the live
-  site serves (some formats return 403). They go in the README's fonts table
-  for Font Manager. Locally, the preview URL loads them through
-  `/dev/font-proxy`.
+- **Fonts come from the tenant.** Every Surface page already links the
+  tenant's Font Manager stylesheets: its typography families and its SVG icon
+  font. `tokens.mjs` reads them (the `tenant fonts` block and
+  `tenant-fonts.json`) and maps each legacy family to the tenant's family and
+  weights.
+  - Use the tenant's family (through the typography tokens, or
+    `font-['<Family>']`). Do not copy the legacy font files, and do not ask for
+    them to be registered.
+  - A legacy family the tenant has no equivalent for may be registered only
+    with the user's agreement; list it in `legacy-port.json`
+    `registerFonts`. The compare loads no other legacy font, so a plugin
+    that depends on one fails it, as it would on Surface.
+  - `reference-css.mjs` still lists the legacy files; they are reference only.
+  - The compare page gets `/static-assets/*` from the tenant host, the way the
+    edge serves it. The local preview route (`/dev/plugins/<id>`) does not, so
+    opened by hand it shows system fonts and empty icon boxes; that is the
+    preview, not the plugin. Either use the compare PNGs or proxy
+    `/static-assets/*` to the tenant.
+- **Typography tokens in practice.** The theme's `.body_*` / `.h*` classes are
+  unlayered CSS, so a Tailwind variant (`min-[769px]:…`) cannot override them
+  in the TSX. For a size that changes at a legacy breakpoint, write
+  `font: var(--<token>)` in `Component.css` (the theme publishes each token's
+  shorthand variable) and switch it in a media query. A `font` shorthand resets
+  line-height; tenant line-heights are often not the legacy 1.5 / 1.2 and
+  every row moves by the difference, so pin the legacy line-height after the
+  `font` declaration and keep size, weight and family tokens.
+- The compare also checks computed font weight. Legacy sites often have one
+  family per weight (`acuminpro-bold` at weight 400); the tenant has one
+  family with real weights (`Acumin Pro` at 700). The glyphs match but the
+  landmark weight does not, so put landmarks on containers (blocks, rows,
+  cells) and leave bold text to the pixel diff.
+
+## Icons
+
+Legacy widgets draw icons from the legacy site's icon font through
+`::before` / `::after` private-use code points (`content: "\e814"`). The
+tenant publishes its own SVG icon font, usually with the same code points
+(`tokens.mjs` prints each one as `\e85c -> icon_pk_plane (font-family "pk")`).
+
+- **Use the tenant's icon font.** Two ways, both used on other tenants'
+  plugins:
+  - the tenant's classes (`icon_<tenant>_<name>`), the most common;
+  - the tenant's family with the same code point in the plugin's own CSS
+    (`font-family: "pk"`), which keeps the legacy layout: the tenant class
+    rules add their own width and margins to the glyph.
+- The family name differs per tenant and is not always the tenant's name (one
+  tenant's icon font is the font tool's default, `fontello`). Take it from
+  `tokens.mjs`, never guess it.
+- **Never** reference the legacy icon font (`waf-font-icon`, ...) in a plugin
+  and never ask for it to be registered: the tenant does not have it, and
+  every icon renders as the browser's missing-glyph box (an empty square).
+- A glyph with no match on the tenant's icon font needs the user's decision
+  (an inline SVG, or registering the legacy glyph through `registerFonts`).
+- Plain letters used as icons (the "i" of an info icon) are ordinary text and
+  need no icon font.
 - The legacy content area is the viewport minus 15px each side; the dev
   preview route reproduces that.
 
@@ -162,9 +222,11 @@ and compare the widget HTML. If it differs:
 - **Parser:** `sample.json`, each response shape, junk input.
 - **Config:** defaults, JSON-string settings, invalid entries, enum
   validation.
-- **prepare:** a mocked context (`tenantId`, `cast`, `telemetry`) covering
-  success, workflow failure (renderable model plus `captureException`) and
-  missing config.
+- **prepare:** a mocked context (`tenantId`, `cast` or
+  `networkManager.get`, `telemetry`) covering success (and, for a direct
+  feed, the URL built from `tenantId`, including a scheme-carrying one),
+  failure (renderable model plus `captureException`) and missing or
+  `undefined` config.
 - **Component:** the content, every interaction, failure and retry, and
   out-of-order responses.
 - **index.ts:** the `pluginId`, and that `execute` returns `replace` and
@@ -198,7 +260,8 @@ README.
 
 - **Description:** the legacy widget and its live URL.
 - **Data source:** the Cast workflow id, its inputs, and the setting → input
-  map.
+  map; or, for a direct feed, the source chosen and why, the URL template,
+  and each setting.
 - **Config:** a table of the settings.
 - **Behaviour:** including the deliberate differences.
 - **Styling:**
@@ -206,7 +269,8 @@ README.
   - the tokens proposed for the tenant;
   - any raw values, each with its reason;
   - page-level notes;
-  - the fonts table.
+  - fonts: which tenant families and icon font the plugin uses, and any
+    legacy family agreed for registration (`registerFonts`).
 - **Verification:** the exact compare numbers, the tolerance, and the reason
   for any tolerance raised.
 - **Files.**
@@ -222,6 +286,6 @@ README.
    - register the plugin and enable it for the tenant;
    - bind the plugin and the workflow on the page's template (TEMPLATE /
      REPLACE);
-   - register the fonts in Font Manager;
+   - register in Font Manager only the fonts the tenant lacks (normally none);
    - set page-level styling in the builder;
    - publish.

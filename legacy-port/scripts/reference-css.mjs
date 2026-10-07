@@ -358,7 +358,9 @@ writeFileSync(
   path.join(config.workDir, "fonts.json"),
   JSON.stringify(fonts, null, 2),
 );
-console.log("\nFonts to register in Font Manager:");
+console.log(
+  "\nLegacy font files (reference only; the tenant's own fonts are used, see tokens.mjs):",
+);
 for (const [family, font] of Object.entries(fonts)) {
   const failed = font.tried
     .filter((t) => t.status !== 200)

@@ -16,7 +16,7 @@ path.
 | `inventory.mjs <url> [--prefix <tenant>] [--waf-js <path>]` | Lists the page's shell and body widgets, where each one's legacy code lives, its feeds and settings, and whether a plugin already ports it | `<tmp>/legacy-port/inventory/<host>-<slug>.json`, with a starter `legacy-port.json` per body widget |
 | `extract-css.mjs <plugin-dir>` | Records every CSS rule Chromium applies to the widget (root and descendants, pseudo-elements included). It does so at each extract width, in each state, with `:hover` forced on the `hover` elements. The legacy page loads with JavaScript off and first-party requests only. | `extract.json` |
 | `reference-css.mjs <plugin-dir>` | Builds the widget's legacy styling as one readable stylesheet: the spec for the Tailwind markup, never shipped. Then finds a working file for each font family. | `legacy.css`, `fonts.json`; prints the fonts and the preview URL |
-| `tokens.mjs <plugin-dir> [--theme <id>] [--base <url>] [--dns <host>]` | Fetches the tenant's theme from the render API and merges `theme.proposed` over it. Then maps every colour (CIEDE2000), spacing, radius and font size in `legacy.css` to tokens, and builds the theme CSS with the renderer's own `genCssFromJson`. | `tokens.json`, `theme.css`; prints the mapping, unknown token names and the values to set on the tenant |
+| `tokens.mjs <plugin-dir> [--theme <id>] [--base <url>] [--dns <host>]` | Fetches the tenant's theme from the render API and merges `theme.proposed` over it. Then maps every colour (CIEDE2000), spacing, radius and font size in `legacy.css` to tokens, and builds the theme CSS with the renderer's own `genCssFromJson`. | `tokens.json`, `theme.css`, `tenant-fonts.json`; prints the mapping, unknown token names, the values to set on the tenant, and the tenant's fonts (legacy family -> tenant family, legacy icon glyph code -> tenant icon class and family) |
 | `compare.mjs <plugin-dir> [--plugin-url <url>]` | Checks the plugin against the live widget with `theme.css` injected. It compares pixels within tolerance per width and state, visible text and links, landmarks, and the interaction steps. | `compare/report.json`, legacy/plugin/diff/side-by-side PNGs per width and state; exit code 1 on FAIL |
 
 `tokens.mjs` reads `NEXT_PUBLIC_BASE_URL` (or `BASE_URL`), `DNS` and
@@ -47,6 +47,8 @@ Example: [../templates/legacy-port.example.json](../templates/legacy-port.exampl
 | `extractViewports` | | 360 to 1920 (9 widths) | Widths for extraction. A width whose media queries all evaluate as an earlier one's is skipped. Non-default states only re-check the elements they change, plus their descendants and later siblings. |
 | `compareViewports` | | `[390, 768, 1366]` | Widths for comparison |
 | `previewOrigin` | | `http://localhost:3000` | Where the local renderer runs |
+| `registerFonts` | | `[]` | Legacy font families the user agreed to register in Font Manager because the tenant has no equivalent. Once `tokens.mjs` has read the tenant's fonts, compare loads only these legacy fonts on the plugin page (plus the tenant's own fonts). |
+| `clientRendered` | | `false` | Set when the widget is drawn by a browser script (the inventory prints `mounted:`): the legacy page loads with **JavaScript on**, extraction and compare wait for `root`, and the widget's `setInterval` timers are frozen so a measurement never lands mid-render. First-party requests only, as always. |
 | `mobileMarkup` | | `false` | Set when the legacy server renders different markup for phones. Extraction then also runs with `mobileUserAgent` below `mobileBreakpoint`, and compare adds `<width>px-phone` runs. |
 | `mobileBreakpoint` | | `768` | Widths below it get the phone User-Agent pass |
 | `mobileUserAgent` | | an iPhone Safari UA | The User-Agent for phone passes |
@@ -143,7 +145,17 @@ cp apps/web/app/dev/font-proxy/route.ts <skill>/templates/dev-preview/font-proxy
   `npx playwright-core install chromium` in `scripts/`. Any recent Chromium
   works, because both pages of a comparison run in the same browser.
 - **`<root> is not on <url>`:** the widget isn't rendered server-side with
-  that class. Check the live HTML with JavaScript off and fix `root`.
+  that class. Check the live HTML with JavaScript off and fix `root`. If the
+  widget is empty with JavaScript off (an `si-waf-widget` mount that a script
+  fills in; the inventory prints `mounted:`), set `"clientRendered": true`.
+- **Icons render as empty boxes (or text in a fallback font) in the
+  compare PNGs:** the plugin uses a font the tenant does not have, usually the
+  legacy icon font. Use the tenant's icon font from the `tokens.mjs` output.
+  The compare serves the tenant's `/static-assets/*`, so what you see is what
+  Surface renders. Opened by hand, the local preview route has no
+  `/static-assets/*` and always shows boxes.
+- **`no tenant-fonts.json` warning from compare:** run `tokens.mjs` first;
+  without it compare loads the legacy fonts, which hides a missing tenant font.
 - **`[data-legacy-port=…] not found`:** the plugin root lacks the attribute,
   the plugin failed to render (see the dev server log), or `pluginRoot` is
   wrong.

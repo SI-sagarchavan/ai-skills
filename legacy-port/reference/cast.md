@@ -1,5 +1,7 @@
 # Data through Cast
 
+(Without Cast, see [direct-feed.md](direct-feed.md).)
+
 A legacy widget reads a feed (for example
 `{{BASE_URL}}/cricket/live/json/{{LANG}}{{SERIESID}}_standings.json`) and
 shapes it in the client parser. On Surface the plugin calls a **Cast
